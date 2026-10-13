@@ -52,10 +52,21 @@ export async function isPremiumUser(userId) {
     return new Date(expires) > new Date();
 }
 
-// Обновить Premium
-export async function setPremium(userId, days = 30, email = null, dodoCustomerId = null) {
-    const expires = new Date();
-    expires.setDate(expires.getDate() + days);
+// Обновить Premium — принимает ДАТУ окончания (не дни!)
+export async function setPremium(userId, expiresAt, email = null, dodoCustomerId = null) {
+    let expires;
+    
+    if (expiresAt instanceof Date) {
+        expires = expiresAt;
+    } else if (typeof expiresAt === 'number') {
+        // Обратная совместимость: если передали число — считаем как дни
+        expires = new Date();
+        expires.setDate(expires.getDate() + expiresAt);
+    } else if (typeof expiresAt === 'string') {
+        expires = new Date(expiresAt);
+    } else {
+        expires = new Date(0); // 1970 — Premium отключён
+    }
 
     await pool.query(
         `INSERT INTO users (id, email, dodo_customer_id, premium_expires, updated_at)
