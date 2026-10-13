@@ -67,6 +67,9 @@ app.post('/api/webhook/dodo', async (req, res) => {
 const signature = req.headers['x-dodo-signature'] 
     || req.headers['svix-signature']
     || req.headers['dodo-signature'];
+    console.log('🔍 Headers:', JSON.stringify(req.headers, null, 2));
+console.log('🔍 Body raw:', req.body.toString().substring(0, 200));
+console.log('🔍 Signature:', signature);
 
 if (!verifyDodoSignature(req.body, signature, process.env.DODO_WEBHOOK_SECRET)) {
     console.warn('⚠️ Invalid webhook signature');
