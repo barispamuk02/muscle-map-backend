@@ -5,22 +5,48 @@ import crypto from 'crypto';
 import { initDb, isPremiumUser, setPremium, getUserByDodoCustomer } from './db.js';
 
 const app = express();
-// Проверка подписи Dodo webhook (HMAC-SHA256)
-function verifyDodoSignature(payload, signature, secret) {
-    if (!signature || !secret) return false;
-    try {
-        const hmac = crypto.createHmac('sha256', secret);
-        hmac.update(payload);
-        const expected = hmac.digest('hex');
-        if (signature.length !== expected.length) return false;
-        return crypto.timingSafeEqual(
-            Buffer.from(signature),
-            Buffer.from(expected)
-        );
-    } catch (e) {
-        console.error('Signature verify error:', e);
+// Проверка подписи Dodo webhook (Svix-совместимая)
+// Проверка подписи Dodo webhook (Svix-совместимая)
+function verifyDodoSignature(rawBody, headers, secret) {
+    const webhookId = headers['webhook-id'];
+    const webhookTimestamp = headers['webhook-timestamp'];
+    const webhookSignature = headers['webhook-signature'];
+
+    if (!webhookId || !webhookTimestamp || !webhookSignature || !secret) {
+        console.warn('⚠️ Missing webhook headers or secret');
         return false;
     }
+
+    // Проверка timestamp (защита от replay, ±5 минут)
+    const now = Math.floor(Date.now() / 1000);
+    const diff = Math.abs(now - parseInt(webhookTimestamp, 10));
+    if (diff > 300) {
+        console.warn('⚠️ Webhook timestamp too old:', diff, 'sec');
+        return false;
+    }
+
+    // Секрет: убираем префикс whsec_, декодируем из base64
+    const secretKey = secret.startsWith('whsec_') ? secret.slice(6) : secret;
+    const secretBytes = Buffer.from(secretKey, 'base64');
+
+    // Подписываем: webhookId.webhookTimestamp.rawBody
+    const signedContent = `${webhookId}.${webhookTimestamp}.${rawBody}`;
+    const expected = crypto
+        .createHmac('sha256', secretBytes)
+        .update(signedContent)
+        .digest('base64');
+
+    // webhookSignature: "v1,<base64>" (может быть несколько, через пробел)
+    const signatures = webhookSignature.split(' ').map(s => s.split(',')[1]).filter(Boolean);
+
+    return signatures.some(sig => {
+        try {
+            const sigBuf = Buffer.from(sig);
+            const expBuf = Buffer.from(expected);
+            if (sigBuf.length !== expBuf.length) return false;
+            return crypto.timingSafeEqual(sigBuf, expBuf);
+        } catch { return false; }
+    });
 }
 const PORT = process.env.PORT || 3000;
 
@@ -63,15 +89,8 @@ app.post('/api/webhook/dodo', async (req, res) => {
         const event = JSON.parse(req.body.toString());
         console.log('📩 Dodo webhook:', event.type || event.event_type);
 
-        // ✅ Проверка подписи Dodo webhook
-const signature = req.headers['x-dodo-signature'] 
-    || req.headers['svix-signature']
-    || req.headers['dodo-signature'];
-    console.log('🔍 Headers:', JSON.stringify(req.headers, null, 2));
-console.log('🔍 Body raw:', req.body.toString().substring(0, 200));
-console.log('🔍 Signature:', signature);
-
-if (!verifyDodoSignature(req.body, signature, process.env.DODO_WEBHOOK_SECRET)) {
+        // ✅ Проверка подписи Dodo (Svix format: webhook-id, webhook-timestamp, webhook-signature)
+if (!verifyDodoSignature(req.body.toString(), req.headers, process.env.DODO_WEBHOOK_SECRET)) {
     console.warn('⚠️ Invalid webhook signature');
     return res.status(401).json({ error: 'invalid signature' });
 }
