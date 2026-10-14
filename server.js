@@ -145,13 +145,22 @@ app.post('/api/webhook/dodo', async (req, res) => {
 
         // 🔒 Проверка идемпотентности
         const eventId = event.id || event.event_id || event.data?.id;
-        if (eventId) {
-            if (await isEventProcessed(eventId)) {
-                console.log('⚠️ Event уже обработан:', eventId);
-                return res.json({ ok: true, skipped: true });
-            }
-            await markEventProcessed(eventId, event.type);
-        }
+console.log('🔍 eventId:', eventId, '| event.id:', event.id, '| event.event_id:', event.event_id, '| event.data?.id:', event.data?.id);
+
+if (eventId) {
+    const processed = await isEventProcessed(eventId);
+    console.log('🔍 isEventProcessed:', processed);
+    
+    if (processed) {
+        console.log('⚠️ Event уже обработан:', eventId);
+        return res.json({ ok: true, skipped: true });
+    }
+    
+    await markEventProcessed(eventId, event.type);
+    console.log('✅ markEventProcessed вызван:', eventId);
+} else {
+    console.log('⚠️ eventId пустой — идемпотентность пропущена');
+}
 
         const type = event.type || event.event_type;
         const data = event.data || event.payload || {};
