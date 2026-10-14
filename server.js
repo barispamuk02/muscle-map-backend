@@ -2,7 +2,14 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import crypto from 'crypto';    
-import { initDb, isPremiumUser, setPremium, getUserByDodoCustomer } from './db.js';
+import { 
+    initDb, 
+    isPremiumUser, 
+    setPremium, 
+    getUserByDodoCustomer,
+    isEventProcessed,
+    markEventProcessed
+} from './db.js';
 
 const app = express();
 // Проверка подписи Dodo webhook (Svix-совместимая)
@@ -135,7 +142,16 @@ if (!verifyDodoSignature(req.body.toString(), req.headers, process.env.DODO_WEBH
     console.warn('⚠️ Invalid webhook signature');
     return res.status(401).json({ error: 'invalid signature' });
 }
-
+// 🔒 Проверка идемпотентности
+const eventId = event.id || event.event_id || event.data?.id;
+if (eventId) {
+    if (await isEventProcessed(eventId)) {
+        console.log('⚠️ Event уже обработан:', eventId);
+        return res.json({ ok: true, skipped: true });
+    }
+    // Помечаем ДО обработки (защита от race condition)
+    await markEventProcessed(eventId, event.type);
+}
         const type = event.type || event.event_type;
         const data = event.data || event.payload || {};
 

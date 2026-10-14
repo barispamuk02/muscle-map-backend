@@ -19,6 +19,16 @@ export async function initDb() {
             updated_at TIMESTAMPTZ DEFAULT NOW()
         );
     `);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            email TEXT,
+            dodo_customer_id TEXT,
+            premium_expires TIMESTAMPTZ,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        );
+    `);
 
     await pool.query(`
         CREATE TABLE IF NOT EXISTS payments (
@@ -29,6 +39,15 @@ export async function initDb() {
             currency TEXT,
             status TEXT,
             created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+    `);
+
+    // 🆕 Таблица для идемпотентности webhook
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS webhook_events (
+            id TEXT PRIMARY KEY,
+            event_type TEXT,
+            processed_at TIMESTAMPTZ DEFAULT NOW()
         );
     `);
 
@@ -92,3 +111,20 @@ export async function getUserByDodoCustomer(dodoCustomerId) {
 }
 
 export default pool;
+// Проверка идемпотентности webhook
+export async function isEventProcessed(eventId) {
+    if (!eventId) return false;
+    const result = await pool.query(
+        'SELECT 1 FROM webhook_events WHERE id = $1',
+        [eventId]
+    );
+    return result.rows.length > 0;
+}
+
+export async function markEventProcessed(eventId, eventType) {
+    if (!eventId) return;
+    await pool.query(
+        'INSERT INTO webhook_events (id, event_type) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+        [eventId, eventType]
+    );
+}
