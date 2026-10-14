@@ -137,21 +137,22 @@ app.post('/api/webhook/dodo', async (req, res) => {
         const event = JSON.parse(req.body.toString());
         console.log('📩 Dodo webhook:', event.type || event.event_type);
 
-        // ✅ Проверка подписи Dodo (Svix format: webhook-id, webhook-timestamp, webhook-signature)
-if (!verifyDodoSignature(req.body.toString(), req.headers, process.env.DODO_WEBHOOK_SECRET)) {
-    console.warn('⚠️ Invalid webhook signature');
-    return res.status(401).json({ error: 'invalid signature' });
-}
-// 🔒 Проверка идемпотентности
-const eventId = event.id || event.event_id || event.data?.id;
-if (eventId) {
-    if (await isEventProcessed(eventId)) {
-        console.log('⚠️ Event уже обработан:', eventId);
-        return res.json({ ok: true, skipped: true });
-    }
-    // Помечаем ДО обработки (защита от race condition)
-    await markEventProcessed(eventId, event.type);
-}
+        // ✅ Проверка подписи Dodo (Svix format)
+        if (!verifyDodoSignature(req.body.toString(), req.headers, process.env.DODO_WEBHOOK_SECRET)) {
+            console.warn('⚠️ Invalid webhook signature');
+            return res.status(401).json({ error: 'invalid signature' });
+        }
+
+        // 🔒 Проверка идемпотентности
+        const eventId = event.id || event.event_id || event.data?.id;
+        if (eventId) {
+            if (await isEventProcessed(eventId)) {
+                console.log('⚠️ Event уже обработан:', eventId);
+                return res.json({ ok: true, skipped: true });
+            }
+            await markEventProcessed(eventId, event.type);
+        }
+
         const type = event.type || event.event_type;
         const data = event.data || event.payload || {};
 
