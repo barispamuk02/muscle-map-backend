@@ -83,6 +83,47 @@ app.get('/api/premium/:userId', async (req, res) => {
     }
 });
 
+// Создать Dodo checkout-сессию (с metadata.user_id)
+app.post('/api/checkout', async (req, res) => {
+    try {
+        const { userId, email } = req.body;
+        
+        if (!userId) {
+            return res.status(400).json({ error: 'userId required' });
+        }
+        
+        const response = await fetch('https://live.dodopayments.com/checkouts', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${process.env.DODO_API_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                product_cart: [
+                    { product_id: 'pdt_0Np4y6YIQmNuBOeULNSot', quantity: 1 }
+                ],
+                customer: email ? { email } : undefined,
+                metadata: { user_id: userId },
+                return_url: 'https://muscle-map.app/?premium=success'
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+            console.error('Dodo checkout error:', data);
+            return res.status(500).json({ error: 'checkout failed', details: data });
+        }
+        
+        console.log('✅ Dodo checkout создан для', userId);
+        res.json({ 
+            checkout_url: data.checkout_url || data.url || data.payment_link 
+        });
+    } catch (e) {
+        console.error('checkout error:', e);
+        res.status(500).json({ error: 'internal' });
+    }
+});
 // Dodo webhook
 app.post('/api/webhook/dodo', async (req, res) => {
     try {
