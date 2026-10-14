@@ -144,7 +144,7 @@ app.post('/api/webhook/dodo', async (req, res) => {
         }
 
         // 🔒 Проверка идемпотентности
-        const eventId = event.id || event.event_id || event.data?.id;
+        const eventId = req.headers['webhook-id'] || event.id || event.event_id || event.data?.id;
 console.log('🔍 eventId:', eventId, '| event.id:', event.id, '| event.event_id:', event.event_id, '| event.data?.id:', event.data?.id);
 
 if (eventId) {
