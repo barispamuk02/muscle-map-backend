@@ -162,21 +162,32 @@ if (type === 'payment.succeeded' || type === 'subscription.active') {
     const email = data.customer?.email;
     const dodoCustomerId = data.customer?.customer_id;
     
-    const currentPeriodEnd = 
-        data.subscription?.current_period_end 
-        || data.current_period_end 
-        || data.subscription?.next_billing_date
-        || data.expires_at;
+    // Используем next_billing_date (не current_period_end — Dodo присылает баг 2046)
+const nextBillingDate = 
+    data.subscription?.next_billing_date
+    || data.next_billing_date;
+
+let premiumUntil;
+if (nextBillingDate) {
+    premiumUntil = new Date(nextBillingDate);
     
-    let premiumUntil;
-    if (currentPeriodEnd) {
-        premiumUntil = new Date(currentPeriodEnd);
-        console.log(`📅 Premium до ${premiumUntil.toISOString()}`);
-    } else {
+    // Проверка: дата не должна быть больше 1 года
+    const oneYearFromNow = new Date();
+    oneYearFromNow.setFullYear(oneYearFromNow.getFullYear() + 1);
+    
+    if (premiumUntil > oneYearFromNow) {
+        // Fallback: 30 дней
         premiumUntil = new Date();
         premiumUntil.setDate(premiumUntil.getDate() + 30);
-        console.log(`📅 Premium на 30 дней (fallback)`);
+        console.log(`⚠️ next_billing_date некорректный (${nextBillingDate}), fallback 30 дней`);
+    } else {
+        console.log(`📅 Premium до ${premiumUntil.toISOString()}`);
     }
+} else {
+    premiumUntil = new Date();
+    premiumUntil.setDate(premiumUntil.getDate() + 30);
+    console.log(`📅 Premium на 30 дней (fallback — нет next_billing_date)`);
+}
 
     if (userId) {
         await setPremium(userId, premiumUntil, email, dodoCustomerId);
