@@ -73,6 +73,30 @@ export async function setPremium(userId, expiresAt, email = null, dodoCustomerId
 }
 
 // A delayed expiry webhook must never revoke a later successful renewal.
+// Payment ledger lives in the same database transaction as entitlement and event marker.
+// Dodo payment IDs de-duplicate distinct webhook deliveries of the same successful charge.
+// Amount is stored in Dodo's smallest currency unit (e.g., cents), not card data.
+export async function recordSuccessfulPayment(userId, eventId, data, db = pool) {
+    const paymentId = typeof data?.payment_id === 'string' && data.payment_id.trim()
+        ? data.payment_id.trim() : null;
+    const recordId = paymentId ? 'dodo:' + paymentId : 'webhook:' + eventId;
+    const rawAmount = data?.total_amount;
+    const amount = typeof rawAmount === 'number' && Number.isSafeInteger(rawAmount) && rawAmount >= 0
+        ? rawAmount : null;
+    const currency = typeof data?.currency === 'string' && /^[a-z]{3}$/i.test(data.currency)
+        ? data.currency.toUpperCase() : null;
+
+    // FK-safe even for the first payment of a previously unknown user.
+    await db.query('INSERT INTO users (id) VALUES ($1) ON CONFLICT (id) DO NOTHING', [userId]);
+    const record = await db.query(
+        `INSERT INTO payments (id, user_id, dodo_payment_id, amount, currency, status)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (id) DO NOTHING RETURNING id`,
+        [recordId, userId, paymentId, amount, currency, 'succeeded']
+    );
+    return record.rows.length > 0;
+}
+
 export async function expirePremiumIfElapsed(userId, now = new Date(), db = pool) {
     await db.query(`UPDATE users SET premium_expires = $2, updated_at = NOW()
         WHERE id = $1 AND premium_expires <= $3`, [userId, new Date(0), now]);
