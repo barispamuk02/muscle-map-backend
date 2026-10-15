@@ -62,6 +62,12 @@ export async function processDodoEvent(event, eventId, dependencies, now = new D
                 userId = found?.id || null;
             }
             if (!userId) throw new Error('Paid event cannot be matched to a user; retry required');
+            // Charge identity, when supplied by Dodo, prevents reactivation by a
+            // second webhook event ID referring to the same successful payment.
+            if (type === 'payment.succeeded') {
+                const isNewPayment = await dependencies.recordSuccessfulPayment(userId, eventId, data, client);
+                if (!isNewPayment) return { action: 'duplicate_payment', userId };
+            }
             const expiresAt = resolvePremiumExpiry(data, now);
             await dependencies.setPremium(userId, expiresAt, email, customerId, client);
             return { action: 'premium_activated', userId };
