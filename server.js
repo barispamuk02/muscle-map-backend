@@ -7,6 +7,7 @@ import {
     setPremium,
     expirePremiumIfElapsed,
     getUserByDodoCustomer,
+    recordSuccessfulPayment,
     withWebhookTransaction
 } from './db.js';
 import { verifyDodoSignature, processDodoEvent } from './payment-events.js';
@@ -101,7 +102,8 @@ app.post('/api/webhook/dodo', async (req, res) => {
             withWebhookTransaction,
             setPremium,
             expirePremiumIfElapsed,
-            getUserByDodoCustomer
+            getUserByDodoCustomer,
+            recordSuccessfulPayment
         });
         res.json({ ok: true, skipped: result.skipped });
     } catch (error) {
