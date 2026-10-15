@@ -1,0 +1,51 @@
+name: Backend Payment Ledger Regression
+on:
+  push:
+    branches:
+      - fix/issue-10-payment-ledger
+  pull_request:
+    paths:
+      - 'db.js'
+      - 'server.js'
+      - 'payment-events.js'
+      - 'tests/**'
+      - '.github/workflows/payment-ledger-ci.yml'
+permissions:
+  contents: read
+jobs:
+  ledger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: muscle_map_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d muscle_map_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/muscle_map_ci?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Validate source syntax
+        run: |
+          node --check server.js
+          node --check db.js
+          node --check payment-events.js
+          node --check webhook-transaction.js
+      - name: Unit regressions
+        run: npm test
+      - name: Real PostgreSQL ledger integration
+        run: node tests/payment-ledger.integration.mjs
