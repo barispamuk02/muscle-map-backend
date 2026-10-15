@@ -51,6 +51,7 @@ function fakeDependencies() {
                 return { skipped: false, result };
             } finally { pending.length = 0; }
         },
+        recordSuccessfulPayment: async () => true,
         setPremium: async (user, expiry) => { pending.push([user, expiry.toISOString()]); },
         expirePremiumIfElapsed: async (user, when) => {
             const old = users.get(user);
@@ -100,4 +101,43 @@ test('payment without any identifiable user fails rather than being acknowledged
     const { deps, applied } = fakeDependencies();
     await assert.rejects(() => processDodoEvent({ type: 'payment.succeeded', data: {} }, 'evt_no_user', deps, now), /cannot be matched/);
     assert.equal(applied.size, 0);
+});
+
+
+test('same Dodo payment ID across distinct webhook IDs does not extend Premium twice', async () => {
+    const { deps, users, applied } = fakeDependencies();
+    const stored = new Set();
+    const recorded = [];
+    deps.recordSuccessfulPayment = async (userId, eventId, data) => {
+        recorded.push([userId, eventId, data.payment_id]);
+        const id = data.payment_id || eventId;
+        if (stored.has(id)) return false;
+        stored.add(id);
+        return true;
+    };
+    const a = { type: 'payment.succeeded', data: { payment_id:'pay_001', metadata: { user_id:'u_known' }, next_billing_date:'2026-11-15' } };
+    const b = { type: 'payment.succeeded', data: { payment_id:'pay_001', metadata: { user_id:'u_known' }, next_billing_date:'2026-12-15' } };
+    const first = await processDodoEvent(a, 'evt_first', deps, now);
+    const duplicate = await processDodoEvent(b, 'evt_second', deps, now);
+    assert.equal(first.result.action,'premium_activated');
+    assert.equal(duplicate.result.action,'duplicate_payment');
+    assert.equal(users.get('u_known'),'2026-11-15T00:00:00.000Z');
+    assert.equal(applied.size,2);
+    assert.equal(recorded.length,2);
+});
+
+test('subscription.active is an entitlement event but does not create a payment record', async () => {
+    const { deps, users } = fakeDependencies();
+    let calls = 0;
+    deps.recordSuccessfulPayment = async () => { calls++; return true; };
+    await processDodoEvent({type:'subscription.active', data: {metadata:{user_id:'u_active'}}},'evt_active',deps,now);
+    assert.ok(users.has('u_active'));
+    assert.equal(calls,0);
+});
+
+test('payment ledger failure keeps entire webhook unacknowledged and retryable', async () => {
+    const { deps, applied } = fakeDependencies();
+    deps.recordSuccessfulPayment = async () => { throw Error('ledger unavailable'); };
+    await assert.rejects(() => processDodoEvent({type:'payment.succeeded',data:{metadata:{user_id:'u_retry_ledger'}}},'evt_failed_ledger',deps,now), /ledger unavailable/);
+    assert.equal(applied.size,0);
 });
