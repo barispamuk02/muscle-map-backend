@@ -1,12 +1,13 @@
 {
   "name": "muscle-map-backend",
   "version": "1.0.0",
-  "description": "Backend for Muscle Map — Dodo webhook + Premium status",
+  "description": "Backend for Muscle Map: Dodo webhook + Premium status",
   "main": "server.js",
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "test": "node --test tests/*.test.js"
   },
   "dependencies": {
     "express": "^4.21.1",
@@ -14,7 +15,5 @@
     "dotenv": "^16.4.5",
     "cors": "^2.8.5"
   },
-  "engines": {
-    "node": ">=18.0.0"
-  }
+  "engines": { "node": ">=18.0.0" }
 }
