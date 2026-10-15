@@ -1,0 +1,3 @@
+Temporary write-permission verification for Muscle Map.
+Created by ChatGPT GitHub connection test on 2026-10-15.
+Safe to delete.
