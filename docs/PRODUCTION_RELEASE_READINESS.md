@@ -108,6 +108,22 @@ Owner authorized a **Neon-only zero-upgrade** production checkpoint and an isola
 
 **Release gate updated:** An independently verified **Neon Free branch checkpoint and restoration from that checkpoint are complete**. A paid snapshot is not mandatory for continuing isolated STAGING QA. Production migration/merge is *still blocked* on the remaining verified auth/payment/legacy subscribers and on choosing an acceptable long-term disaster recovery policy, because branch-only protection is not full off-project backup.
 
+## Refund/dispute and merchant-ownership hardening (Draft only, 2026-10-16)
+
+The backend Draft now contains a first version of *durable review evidence* for Dodo risk signals. Dodo's current official event catalog identifies `refund.succeeded`, `refund.failed` and dispute events including `dispute.opened`, `dispute.won` and `dispute.lost`. Sources: https://docs.dodopayments.com/developer-resources/webhooks/intents/webhook-events-guide , https://docs.dodopayments.com/developer-resources/webhooks/intents/refund and https://docs.dodopayments.com/developer-resources/webhooks/intents/dispute .
+
+**Implemented in Draft only:**
+- New `payment_risk_events` durable table: one row per cryptographically verified, idempotently received refund/dispute notification. Stores event type, provider refund/dispute identifier, payment/customer identifiers, optional *matched* historical payment-ledger user and `pending` review state. It contains no card data or raw webhook payload.
+- Risk event inserts occur **inside the same database transaction** as `webhook_events` idempotency markers. Malformed or missing payment/reversal evidence rolls back both, allowing retry rather than quietly acknowledging a lost dispute.
+- The risk event **does not immediately revoke Premium**. This is intentional until an independently verified refund/dispute policy and renewed paid periods can be reconciled. A later subscription payment may justify ongoing access. A human must review `payment_risk_events` before treating the paid period as settled.
+- `users.dodo_customer_id` receives a partial unique index in the *future* `initDb()` migration, preventing one Dodo customer from being bound to multiple internal users. Read-only Production verification before adding this DDL showed **0 duplicate customer IDs**.
+- Successful payment and subscription-expiry webhooks now use `resolveDodoBillingRecipient` inside the same SQL transaction with advisory locks on the customer and target user. If a Dodo customer already belongs to a different user than `metadata.user_id`, or the indicated user is already bound to another customer, the entire event fails without an entitlement change. If the account isn't recognized, the event remains retryable; no guessed account is created.
+- Synthetic PostgreSQL integration coverage includes matching/new payment, refund on known charge, dispute on historical-unmatched charge, duplicate refund, malformed reversal rollback, mismatched metadata on payment and expiration, and concurrent first payments for the same customer.
+
+**Outstanding for production:** Test representative anonymized Dodo LIVE webhook payloads, policy for *confirmed* full vs partial refunds, disputed vs won/lost cases, delayed/out-of-order events and retry/escalation, including orphaned legacy payment rows. The system does not yet implement automatic merchant-confirmed entitlement revocation; leave the production refund/dispute blocker **open**. Consider restricting subscribed Dodo webhook types to events the system processes during initial rollout and an operator alert for pending risk events, with care not to miss critical payment risks.
+
+For a later read-only risk status after explicit release approval, use aggregate SQL only, e.g. `SELECT event_type, review_status, COUNT(*) FROM payment_risk_events GROUP BY event_type,review_status`. Do **not** post transaction IDs, email addresses or secret values.
+
 ## Status
 
 **READY**: one independent STAGING paid claim, signer audit, atomic period correction, staging schema, underlying backend and frontend Draft suites.
