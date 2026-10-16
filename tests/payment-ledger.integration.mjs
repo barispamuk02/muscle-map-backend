@@ -13,6 +13,11 @@ const deps = { withWebhookTransaction, recordSuccessfulPayment, setPremium, expi
 
 try {
     await initDb();
+    const period = (end='2026-11-20T00:00:00Z',start='2026-10-15T00:00:00Z') => ({
+        subscription_id:'sub_ci_ledger_12345',
+        subscription_ids:['sub_ci_ledger_12345'],
+        service_periods:[{subscription_id:'sub_ci_ledger_12345',starts_at:start,ends_at:end}]
+    });
     const payId = 'pay_ci_unique_100';
     const uid = 'u_ci_ledger_100';
     const expiry1 = '2026-11-20T00:00:00Z';
@@ -22,7 +27,7 @@ try {
             type: 'payment.succeeded',
             data: {
                 payment_id: payId, metadata: { user_id: uid },
-                next_billing_date: expiry, total_amount: 399, currency: 'USD'
+                ...period(expiry), total_amount: 399, currency: 'USD'
             }
         }
     });
@@ -53,7 +58,7 @@ try {
                 payment_id: concurrentId,
                 metadata: { user_id: 'u_ci_concurrent_200' },
                 total_amount: 399, currency:'USD',
-                next_billing_date:'2026-11-15T00:00:00Z'
+                ...period('2026-11-15T00:00:00Z')
             }
         }, 'evt_ci_concurrent_' + i, deps, new Date('2026-10-15T00:00:00Z'))
     );
@@ -80,13 +85,48 @@ try {
     // safely de-duplicated by webhook-id across different deliveries.
     await assert.rejects(
         processDodoEvent({
-            type:'payment.succeeded',data:{ metadata:{user_id:'u_ci_payment_no_id'}, total_amount:399,currency:'USD'}
+            type:'payment.succeeded',data:{metadata:{user_id:'u_ci_payment_no_id'},...period(),total_amount:399,currency:'USD'}
         },'evt_ci_no_payment_id',deps,new Date('2026-10-15T00:00:00Z')),
         /Missing or invalid Dodo payment_id/
     );
     assert.equal(Number((await reader.query("SELECT COUNT(*) AS c FROM payments WHERE id='webhook:evt_ci_no_payment_id'")).rows[0].c),0);
     assert.equal(Number((await reader.query("SELECT COUNT(*) AS c FROM webhook_events WHERE id='evt_ci_no_payment_id'")).rows[0].c),0);
     console.log('PAYMENT_LEDGER_MISSING_ID_REJECTED_OK');
+    // A subscription.active event is state-only. It cannot sell Premium.
+    const activity = await processDodoEvent({
+        type:'subscription.active',data:{metadata:{user_id:'u_ci_activity_only'},
+            next_billing_date:'2026-11-15T00:00:00Z'}
+    },'evt_ci_activity_only',deps,new Date('2026-10-15T00:00:00Z'));
+    assert.equal(activity.result.action,'subscription_state_only');
+    assert.equal((await getPremiumStatus('u_ci_activity_only')).premium,false);
+
+    // Incomplete paid period must roll back BOTH charge and transport marker.
+    await assert.rejects(
+        processDodoEvent({type:'payment.succeeded',
+            data:{payment_id:'pay_ci_missing_period',metadata:{user_id:'u_ci_unproved'},
+                subscription_ids:['sub_ci_ledger_12345'],service_periods:[],
+                total_amount:399,currency:'USD'}},
+            'evt_ci_missing_period',deps,new Date('2026-10-15T00:00:00Z')),
+        /service_periods/
+    );
+    assert.equal(Number((await reader.query(
+        "SELECT COUNT(*) AS c FROM payments WHERE dodo_payment_id='pay_ci_missing_period'"
+    )).rows[0].c),0);
+    assert.equal(Number((await reader.query(
+        "SELECT COUNT(*) AS c FROM webhook_events WHERE id='evt_ci_missing_period'"
+    )).rows[0].c),0);
+
+    // Exact provider period: October 14 -> November 14 is 31 days, not 30.
+    const calendar = await processDodoEvent({
+        type:'payment.succeeded',
+        data:{payment_id:'pay_ci_calendar_oct',metadata:{user_id:'u_ci_calendar'},
+            ...period('2026-11-14T04:23:00Z','2026-10-14T04:23:00Z'),
+            total_amount:399,currency:'USD'}
+    },'evt_ci_calendar_oct',deps,new Date('2026-10-14T04:24:00Z'));
+    assert.equal(calendar.result.action,'premium_activated');
+    assert.equal((await getPremiumStatus('u_ci_calendar')).expiresAt,'2026-11-14T04:23:00.000Z');
+    console.log('CALENDAR_PERIOD_AND_MISSING_PERIOD_ROLLBACK_OK');
+
 
     const zeroSetup = await processDodoEvent({
         type:'payment.succeeded',
