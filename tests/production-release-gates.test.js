@@ -209,3 +209,16 @@ test('Production Ed25519 approval uses separate pinned key and domain, no STAGIN
             /PRODUCTION_APPROVAL_VERIFICATION_REJECTED/);
     }
 });
+test('Provider response IDs must match the exact merchant GET paths',async()=>{
+    for(const change of [
+        src=>src.payment.payment_id='pay_ci_wrong_record_12345',
+        src=>src.subscription.subscription_id='sub_ci_wrong_record_12345'
+    ]){
+        const src=merchant();change(src);
+        const d=dbPreview();
+        await assert.rejects(previewProductionPaidClaim({
+            env,db:d,http:pretendFetch(src).http,now:when
+        }),/PRODUCTION_CLAIM_MERCHANT_REFERENCE_MISMATCH/);
+        assert.equal(d.sqls.length,0);
+    }
+});
