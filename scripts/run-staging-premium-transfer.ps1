@@ -134,36 +134,3 @@ try{
     }
     [Array]::Clear($random,0,$random.Length)
 }
-){
-            $env:STAGING_OTP_CODE=$entered
-            $formatValid=$true
-            break
-        }
-        Write-Host 'OTP_FORMAT_INVALID_ENTER_EXACTLY_6_DIGITS_NO_EMAIL_RESENT' -ForegroundColor Yellow
-    }
-    if(!$formatValid){throw 'BILLING_OTP_LOCAL_INPUT_RETRIES_EXHAUSTED'}
-    & node .\scripts\dodo-staging-confirm-otp.mjs
-    if($LASTEXITCODE -ne 0){throw 'BILLING_OTP_CONFIRM_FAILED'}
-    Remove-Item Env:STAGING_OTP_CODE -ErrorAction SilentlyContinue
-
-    # Direct local owner intent gate, after independently confirmed mailbox.
-    $decision=(Read-Host 'Transfer this ONE paid Premium only in isolated Neon STAGING? Type APPLY STAGING').Trim()
-    if($decision -cne 'APPLY STAGING'){
-        Write-Host 'OPERATOR_STOPPED_AFTER_OTP_NO_PREMIUM_CHANGE'
-        return
-    }
-    $env:STAGING_LOCAL_OWNER_CONFIRM='TRANSFER_ONE_PAID_PREMIUM_TO_STAGING'
-    $env:STAGING_OPERATOR_ACTION='APPROVE_STAGING_CLAIM'
-    & node .\scripts\staging-claim-approved-apply.mjs
-    if($LASTEXITCODE -ne 0){throw 'STAGING_APPLY_NOT_VERIFIED_STOP_NO_RETRY'}
-    Write-Host 'STAGING_TRANSFER_SESSION_FINISHED' -ForegroundColor Green
-}catch{
-    # Do not echo raw exceptions from child processes, connections or crypto.
-    Write-Host 'STAGING_OPERATOR_SESSION_STOPPED. Inspect sanitized preceding status.' -ForegroundColor Yellow
-    exit 1
-}finally{
-    foreach($name in $names){
-        Remove-Item -Path ('Env:'+$name) -ErrorAction SilentlyContinue
-    }
-    [Array]::Clear($random,0,$random.Length)
-}
