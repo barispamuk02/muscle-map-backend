@@ -14,6 +14,8 @@ on:
       - 'production-operator-local-key.js'
       - 'scripts/enroll-production-operator-key.mjs'
       - 'scripts/run-production-key-enrollment.ps1'
+      - 'scripts/production-one-owner-paid-claim.mjs'
+      - 'scripts/run-production-one-paid-claim.ps1'
       - 'scripts/production-owner-operator.mjs'
       - 'scripts/run-production-owner-operator.ps1'
       - 'server.js'
@@ -70,6 +72,7 @@ jobs:
           node --check production-operator-local-key.js
           node --check scripts/enroll-production-operator-key.mjs
           node --check tests/production-operator-local-key.test.js
+          node --check scripts/production-one-owner-paid-claim.mjs
           node --check scripts/production-owner-operator.mjs
           node --check tests/production-owner-bootstrap.test.js
           node --check tests/production-release-gates.test.js
@@ -127,6 +130,12 @@ jobs:
           $tokens=$null; $errors=$null
           [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path './scripts/run-production-key-enrollment.ps1').Path, [ref]$tokens, [ref]$errors) | Out-Null
           if ($errors.Count -gt 0) { throw 'Production signer PowerShell syntax invalid' }
+      - name: One-owner Production transfer PowerShell must parse (never execute)
+        shell: pwsh
+        run: |
+          $tokens=$null; $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path './scripts/run-production-one-paid-claim.ps1').Path, [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { throw 'One-owner transfer PowerShell syntax invalid' }
       - name: Unit regressions
         run: npm test
       - name: Run additive Production-schema rehearsal on disposable PostgreSQL only
