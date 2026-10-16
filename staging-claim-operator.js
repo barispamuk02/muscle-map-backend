@@ -48,7 +48,10 @@ async function collectPreview({env,db,http,now}) {
     const merchantExpiry=new Date(matched.paidThrough).getTime();
     const expiryMatches=Number.isFinite(actualExpiry) &&
         Number.isFinite(merchantExpiry) && actualExpiry===merchantExpiry;
-    return {matched,payment,subscription,expiryMatches};
+    const correctionEligible=Number.isFinite(actualExpiry) &&
+        Number.isFinite(merchantExpiry) && actualExpiry>now.getTime() &&
+        actualExpiry<merchantExpiry;
+    return {matched,payment,subscription,expiryMatches,correctionEligible};
 }
 
 export async function previewStagingPremiumClaim({
@@ -59,9 +62,7 @@ export async function previewStagingPremiumClaim({
         merchantVerified:true,verifiedNeonAccount:true,
         eligibleLegacyPaidCustomer:true,
         historicalExpiryMatchesDodo:p.expiryMatches,
-        correctionInSameApprovedClaim:!p.expiryMatches &&
-            new Date(p.matched.paidThrough).getTime()>
-                new Date(p.payment.service_periods[0].starts_at).getTime(),
+        correctionInSameApprovedClaim:p.correctionEligible,
         freshOtpRequired:true,
         independentAdminApprovalRequired:true,
         actualLinkPerformed:false
@@ -87,6 +88,8 @@ export async function applyApprovedStagingPremiumClaim({
     // A legacy period shorter than Dodo's authenticated paid-through is
     // corrected atomically by linkLegacyPremiumAfterReview after fresh OTP.
     // The migration primitive itself rejects any attempt to shorten a term.
+    if(!context.expiryMatches && !context.correctionEligible)
+        throw Error('STAGING_CLAIM_MERCHANT_ENTITLEMENT_CONFLICT');
     const m=context.matched;
     const approvalProof=verifyIndependentStagingApproval({
         approval,publicKeyPem:operatorPublicKeyPem,
