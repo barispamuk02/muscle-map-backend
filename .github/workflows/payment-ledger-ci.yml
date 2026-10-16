@@ -51,6 +51,8 @@ jobs:
           node --check legacy-account-claim-rollback.js
           node --check staging-claim-approval.js
           node --check staging-claim-operator.js
+          node --check production-auth-rollout-guard.js
+          node --check tests/production-auth-rollout-guard.test.js
           node --check staging-operator-local-key.js
           node --check scripts/enroll-staging-operator-key.mjs
           node --check scripts/verify-staging-operator-key.mjs
