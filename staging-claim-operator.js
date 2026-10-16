@@ -59,6 +59,9 @@ export async function previewStagingPremiumClaim({
         merchantVerified:true,verifiedNeonAccount:true,
         eligibleLegacyPaidCustomer:true,
         historicalExpiryMatchesDodo:p.expiryMatches,
+        correctionInSameApprovedClaim:!p.expiryMatches &&
+            new Date(p.matched.paidThrough).getTime()>
+                new Date(p.payment.service_periods[0].starts_at).getTime(),
         freshOtpRequired:true,
         independentAdminApprovalRequired:true,
         actualLinkPerformed:false
@@ -81,8 +84,9 @@ export async function applyApprovedStagingPremiumClaim({
         throw Error('STAGING_CLAIM_APPLY_DISABLED_PENDING_OWNER_ENROLLMENT');
     }
     const context=await collectPreview({env,db,http,now:now()});
-    if(!context.expiryMatches)
-        throw Error('STAGING_CLAIM_LEGACY_EXPIRY_RECONCILIATION_REQUIRED');
+    // A legacy period shorter than Dodo's authenticated paid-through is
+    // corrected atomically by linkLegacyPremiumAfterReview after fresh OTP.
+    // The migration primitive itself rejects any attempt to shorten a term.
     const m=context.matched;
     const approvalProof=verifyIndependentStagingApproval({
         approval,publicKeyPem:operatorPublicKeyPem,
