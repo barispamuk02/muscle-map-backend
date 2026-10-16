@@ -84,3 +84,31 @@ References:
 - Neon API settings: https://api-docs.neon.tech/reference/updateneonauthemailandpasswordconfig
 - Better Auth OTP endpoints: https://better-auth.com/docs/1.6/plugins/email-otp
 - Dodo portal API: https://docs.dodopayments.com/api-reference/customers
+
+
+## 2026-10-16: calendar billing correction and isolated claim rehearsal
+
+The Dodo merchant dashboard showed an October 14 successful monthly charge whose subscription's next billing date is **November 14**, while the old backend had granted until **November 13** because it had fallen back to **now + 30 days**. This is a provider billing-period mismatch, **not** authority to rewrite live records without a verified subscription period.
+
+### Billing implementation, Draft PR only
+
+- The only automatic **paid** entitlement-activating webhook is `payment.succeeded`, with a **single, correctly linked** entry in `service_periods` carrying explicit `starts_at`, `ends_at`, `subscription_id`, matching `subscription_ids`.
+- Reject missing, ambiguous, malformed, stale, implausibly distant or mismatched periods; the webhook marker and payment transaction must roll back for future reconciliation/retry. Never substitute calendar arithmetic (30 days, 31 days, plus one month) when Dodo does not supply paid-period proof.
+- `subscription.active` only records receipt of an account-state notification and does **not** grant premium or create a payment charge.
+- Card-method-only events and unsubscribed/on-demand charges cannot grant Premium.
+- Existing `setPremium` retains the greater of old and verified new period, so a late event must not reduce a valid already-paid term. Refund/dispute/chargeback handling remains a separate **release blocker**.
+- Official payload description: Dodo Payment webhook `service_periods[].ends_at` and Subscription `next_billing_date` (end of billing period). See https://docs.dodopayments.com/developer-resources/webhooks/intents/payment and https://docs.dodopayments.com/developer-resources/webhooks/intents/subscription.
+
+### Verification and isolated staging rehearsal
+
+- GitHub Actions `Backend Payment Ledger Regression` run `38851424665`: **success** (Node unit and real disposable PostgreSQL 16 ledger tests including 31-day Oct→Nov billing, duplicate charge protection, transaction rollback). `Isolated Auth HTTP E2E` run `38851424641`: **success**.
+- Staging preflight (read-only): 1 eligible historic paid customer row, 1 authenticated login-to-unentitled-user mapping, 0 existing claims, 0 ownership collisions; **this is NOT owner proof**.
+- A **separate Neon child branch** `staging-migration-rehearsal-20261016` (`br-frosty-pine-b15rsdc6`) was cloned from staging. Two **synthetic accounts**, a synthetic auth identity and a synthetic `legacy_account_claims` audit record were inserted in a single transaction, then the synthetic identity was mapped to the synthetic paid account.
+- Post-rehearsal checks: exactly 1 synthetic mapping, exact preserved synthetic expiry, exactly 1 claim. Original staging branch still shows 4 users / 0 claims; production still shows 3 users / 3 active Premium with no migration.
+- The SQL rehearsal checks schema and transactional mapping only; the **actual internal application function** `linkLegacyPremiumAfterReview` is separately tested in the disposable PostgreSQL CI runner, including rejection of a mismatching customer and duplicate claims.
+- **No real subscriber was migrated**. Before real staging migration, implement a trusted ownership verifier for the Dodo billing account (independent challenge and merchant-side proof). Existing photos or e-mail matching alone are not a binding authorization, and fake CI `verified:true` callbacks must never be used on a real account.
+- No Dodo subscription, payment, LIVE credential, Neon production row, Render production service or frontend production branch was modified.
+
+### Rollout gates
+
+Keep PR #2 Draft, frontend PR #11 Draft and Render Auto-Deploy OFF. Before manual staging redeploy, review the strict billing change and test with sanitized authentic Dodo `payment.succeeded` payload schema. Then finish refund/dispute handling, ownership verification flow, staging real-account claim approval and production rollback planning. **Do not backfill a historical payment row or extend the owner's Premium purely from a screenshot.**
