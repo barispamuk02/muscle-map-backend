@@ -4,6 +4,8 @@
 
 **This is the current action status.** Production business-schema migration has ALREADY COMPLETED and is verified; the single paid Premium claim has NOT been applied. Backend remains Draft and unmerged.
 
+**Key enrollment update:** On 2026-10-16, the owner supplied ONLY their public Production Ed25519 SHA-256 fingerprint, now pinned to `ENROLLED_PRODUCTION_APPROVER_FINGERPRINT` in `production-claim-approval.js`: `1c6bd3d740d19d9d7ac4f82881c7e8bd282e1cdbd2e4664bf3ef72459e6d09aa`. The private key and passphrase have NOT been provided to GitHub, Neon or the assistant. Owner-local operator approval and fresh separate billing-email OTP are still required. No Production claim was performed by enrollment.
+
 An owner-controlled single-window Production transfer workflow is now implemented and continuously tested in the Draft branch:
 
 - `production-owner-local-login.js`: only existing Neon Better Auth password sign-in and short-lived signed JWT retrieval. No repeat signup or recovery OTP.
