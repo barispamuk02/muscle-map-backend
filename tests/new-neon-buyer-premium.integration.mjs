@@ -129,6 +129,99 @@ try{
         assert.equal((await getPremiumStatus(otherId)).premium,false);
     }
 
+
+    // Dodo may reuse a legacy test customer's merchant ID for a separate
+    // new verified Neon Auth checkout. The charged subscription must belong
+    // to the newly authenticated buyer, WITHOUT stealing that old customer's
+    // existing merchant relationship or changing their paid-through date.
+    const legacyId='u_ci_legacy_shared_customer_123456789';
+    const legacyCustomer='cus_ci_reused_test_123456789';
+    const legacyEnd=new Date(now.getTime()+17*86400_000).toISOString();
+    await db.query(
+        'INSERT INTO users (id,dodo_customer_id,premium_expires) VALUES($1,$2,$3)',
+        [legacyId,legacyCustomer,legacyEnd]
+    );
+    const freshUser=await getAccountUserId({
+        issuer,subject:'buyer-ci-distinct-verified-account-3'
+    });
+    const sharedSub='sub_ci_paid_for_fresh_buyer_123456';
+    const sharedPay='pay_ci_shared_customer_real_charge_12345';
+    const sharedEvent={
+        type:'payment.succeeded',
+        data:{
+            payment_id:sharedPay,currency:'USD',total_amount:399,
+            status:'succeeded',metadata:{user_id:freshUser},
+            customer:{customer_id:legacyCustomer,email:'secondbuyer@example.test'},
+            subscription_ids:[sharedSub],
+            service_periods:[{
+                subscription_id:sharedSub,
+                starts_at:periodStart,ends_at:until
+            }]
+        }
+    };
+    const sharedApplied=await processDodoEvent(sharedEvent,
+        'evt_ci_shared_customer_paid_123456',deps,now);
+    assert.equal(sharedApplied.result.action,'premium_activated');
+    assert.equal(sharedApplied.result.userId,freshUser);
+    assert.equal((await getPremiumStatus(freshUser)).premium,true);
+    const legacyAfter=await db.query(
+        'SELECT dodo_customer_id,premium_expires FROM users WHERE id=$1',
+        [legacyId]
+    );
+    assert.equal(legacyAfter.rows[0].dodo_customer_id,legacyCustomer);
+    assert.equal(new Date(legacyAfter.rows[0].premium_expires).toISOString(),legacyEnd);
+    const newAfter=await db.query(
+        'SELECT dodo_customer_id,premium_expires FROM users WHERE id=$1',
+        [freshUser]
+    );
+    assert.equal(newAfter.rows[0].dodo_customer_id,null,
+        'old merchant ID must not be duplicated or taken from legacy owner');
+    assert.equal(new Date(newAfter.rows[0].premium_expires).toISOString(),until);
+    const ownership=await db.query(
+        'SELECT user_id,dodo_customer_id FROM billing_subscription_owners WHERE subscription_id=$1',
+        [sharedSub]
+    );
+    assert.equal(ownership.rowCount,1);
+    assert.equal(ownership.rows[0].user_id,freshUser);
+    assert.equal(ownership.rows[0].dodo_customer_id,legacyCustomer);
+    assert.equal((await processDodoEvent(sharedEvent,
+        'evt_ci_shared_customer_paid_123456',deps,now)).skipped,true);
+
+    // Signed recurring paid event can arrive without original checkout
+    // metadata. Resolve it by previously verified subscription ID, not
+    // the merchant customer ID that is still tied to the legacy user.
+    const extended=new Date(now.getTime()+61*86400_000).toISOString();
+    const renewal={...sharedEvent,data:{...sharedEvent.data,
+        payment_id:'pay_ci_same_subscription_next_paid_12345',
+        metadata:{},service_periods:[{
+            subscription_id:sharedSub,starts_at:until,ends_at:extended
+        }]
+    }};
+    const renewed=await processDodoEvent(renewal,
+        'evt_ci_same_subscription_next_paid_123456',deps,now);
+    assert.equal(renewed.result.userId,freshUser);
+    assert.equal((await getPremiumStatus(freshUser)).expiresAt,extended);
+    assert.equal((await getPremiumStatus(legacyId)).expiresAt,legacyEnd);
+
+    // A distinct authenticated account cannot take an ALREADY owned
+    // subscription just by naming that same merchant customer.
+    await assert.rejects(
+        processDodoEvent({...sharedEvent,data:{...sharedEvent.data,
+            payment_id:'pay_ci_stolen_subscription_attempt_12345',
+            metadata:{user_id:otherId}
+        }},'evt_ci_stolen_subscription_attempt_12345',deps,now),
+        /Dodo subscription belongs to a different authenticated account/
+    );
+    assert.equal((await getPremiumStatus(otherId)).premium,false);
+    const stolen=await db.query(
+        'SELECT id FROM payments WHERE dodo_payment_id=$1',
+        ['pay_ci_stolen_subscription_attempt_12345']
+    );
+    assert.equal(stolen.rowCount,0);
+    console.log('REUSED_LEGACY_DODO_CUSTOMER_DISTINCT_NEW_VERIFIED_BUYER=PASS');
+    console.log('RENEWAL_WITHOUT_METADATA_USES_PAID_SUBSCRIPTION_OWNER=PASS');
+    console.log('EXISTING_LEGACY_CUSTOMER_UNCHANGED=PASS');
+
     console.log('NEW_NEON_BUYER_TO_DODO_PAID_PREMIUM_SIMULATION=PASS');
     console.log('NEW_BUYER_ID_BOUND_TO_PAYMENT_AND_EXPIRY=PASS');
     console.log('NEW_BUYER_UNRELATED_ACCOUNTS_UNTOUCHED=PASS');
