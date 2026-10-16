@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import pg from 'pg';
-import {initDb} from '../db.js';
+import {initDb,setPremium,getAccountUserId,getPremiumStatus} from '../db.js';
+import {linkLegacyPremiumAfterReview} from '../legacy-account-claim.js';
+import {makeTrustedDodoClaimReviewer} from '../trusted-dodo-claim-review.js';
 import {issueBillingEmailChallenge,confirmBillingEmailChallenge,readConsumedBillingChallenge} from '../billing-email-otp.js';
 import {retrieveDodoLiveBilling,reconcileDodoLiveOwnership} from '../dodo-ownership-audit.js';
 
@@ -9,7 +11,7 @@ if(!process.env.DATABASE_URL?.includes('muscle_map_ci'))
 const pool=new pg.Pool({connectionString:process.env.DATABASE_URL,ssl:false,max:3});
 const secret='ci-only-billing-challenge-secret-should-be-longer-than-32';
 const issuer='https://issuer.example.test';
-const subject='ci_subscriber_otp_001';
+const subject='11111111-2222-4333-8444-555555555555';
 const customerId='cus_ci_audit_1234567890';
 const recipientEmail='subscriber@example.test';
 const now=new Date('2026-10-16T05:00:00Z');
@@ -33,6 +35,13 @@ const subscription={
 
 try {
     await initDb();
+    await pool.query('CREATE SCHEMA IF NOT EXISTS neon_auth');
+    await pool.query('CREATE TABLE IF NOT EXISTS neon_auth."user" (id uuid PRIMARY KEY,email text NOT NULL,"emailVerified" boolean NOT NULL,banned boolean NOT NULL DEFAULT false)');
+    await pool.query('INSERT INTO neon_auth."user"(id,email,"emailVerified",banned) VALUES ($1,$2,true,false)',[subject,recipientEmail]);
+    const legacyId='u_ci_trusted_review_legacy_20261016';
+    await setPremium(legacyId,'2026-11-14T04:23:00Z',recipientEmail,customerId);
+    const tempIdentity=await getAccountUserId({issuer,subject});
+    assert.ok(tempIdentity!==legacyId);
     const allCalls=[];
     const http=async (url,opts)=>{
         allCalls.push({url,method:opts.method});
@@ -110,6 +119,29 @@ try {
     assert.equal(proof.paidThrough,'2026-11-14T04:23:00.000Z');
     assert.equal(proof.dodoCustomerId,customerId);
     assert.equal(proof.evidenceReference,'dodo-audit:'+first.challengeId);
+    // Exercise the FULL internal review callback with trusted DB origin
+    // and mocked merchant GET, then execute the original transactional
+    // claim primitive. Never use any real Dodo or customer records in CI.
+    const reviewer=makeTrustedDodoClaimReviewer({
+        expectedIssuer:issuer,paymentId,subscriptionId,productId,
+        challengeId:first.challengeId,apiKey:'ci-fake-merchant-key-never-live',
+        db:pool,http,now:()=>new Date(now.getTime()+130000)
+    });
+    const reviewed=await reviewer({issuer,subject,legacyUserId:legacyId});
+    assert.equal(reviewed.evidenceReference,proof.evidenceReference);
+    const linked=await linkLegacyPremiumAfterReview({
+        issuer,subject,legacyUserId:legacyId,reviewedBy:'ci-safe-reviewer',
+        proofMethod:'dodo_merchant_manually_verified',
+        evidenceReference:reviewed.evidenceReference
+    },reviewer,pool);
+    assert.equal(linked.userId,legacyId);
+    assert.equal(await getAccountUserId({issuer,subject}),legacyId);
+    assert.equal((await getPremiumStatus(legacyId)).expiresAt,'2026-11-14T04:23:00.000Z');
+    assert.equal(Number((await pool.query(
+        'SELECT COUNT(*) AS c FROM legacy_account_claims WHERE legacy_user_id=$1 AND evidence_reference=$2',
+        [legacyId,reviewed.evidenceReference]
+    )).rows[0].c),1);
+    console.log('TRUSTED_DODO_LIVE_GET_EMAIL_OTP_AND_TRANSACTIONAL_CLAIM_MOCKS_OK');
     console.log('DODO_AUDIT_OTP_CONSUMED_ONCE_WITH_EXACT_PAYMENT_PERIOD_OK');
 
     const second=await issueBillingEmailChallenge({
