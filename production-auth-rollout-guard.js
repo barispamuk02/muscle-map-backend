@@ -54,9 +54,11 @@ export function assertProductionAuthCutoverConfiguration(env=process.env){
        issuer.href!==pinnedIssuer.href ||
        issuer.origin!==issuer.href.replace(/\/$/,'') ||
        issuer.origin===STAGING_ISSUER ||
+       !issuer.hostname.includes('.neonauth.') ||
+       !issuer.hostname.endsWith('.neon.tech') ||
        jwks.href!==pinnedJwks.href ||
        jwks.origin!==issuer.origin ||
-       !jwks.pathname.endsWith('/auth/.well-known/jwks.json') ||
+       jwks.pathname!=='/neondb/auth/.well-known/jwks.json' ||
        !dbHost || STAGING_DB_HOSTS.has(dbHost) ||
        !env.PRODUCTION_DB_HOST ||
        dbHost!==env.PRODUCTION_DB_HOST.toLowerCase() ||
