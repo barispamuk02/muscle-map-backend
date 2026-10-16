@@ -188,13 +188,13 @@ test('not-enrolled approver, tampered signature and expired approval fail closed
     }),/MALFORMED/);
 });
 
-test('real staging APPLY remains disabled until separate owner-approved key enrollment',async()=>{
-    assert.equal(ENROLLED_OPERATOR_ED25519_FINGERPRINT,null);
+test('owner public fingerprint enrolled, but APPLY still needs separate operator mode',async()=>{
+    assert.equal(ENROLLED_OPERATOR_ED25519_FINGERPRINT,
+        '68dc0b78c07acaa3e3e867744fcfa7f06182852140be02a52fa18dab6a079cac');
     const fixture=previewFixture({expiry:paidThrough});
     await assert.rejects(
         applyApprovedStagingPremiumClaim({
-            env:{...env,STAGING_OPERATOR_ACTION:'APPROVE_STAGING_CLAIM'},
-            db:fixture.db,http:fixture.http,
+            env,db:fixture.db,http:fixture.http,
             approval:makeSigned(payload),operatorPublicKeyPem:pem,now:()=>time
         }),
         /STAGING_CLAIM_APPLY_DISABLED_PENDING_OWNER_ENROLLMENT/
