@@ -54,3 +54,33 @@ The server controls authenticated checkout identity and API-retrieved entitlemen
 As of 2026-10-16, staging Neon branch `br-jolly-sunset-b1pl23nn` (`staging-issue10-auth-20261016`) has Managed Better Auth, but production Neon does not. A read-only audit of this branch: 3 existing Premium users, only 2 with a stored Dodo customer ID. The third needs separate customer/payment reconciliation and cannot use automatic legacy linking. Frontend staging implementation: frontend Draft PR #11. No production account is registered or bound by these changes.
 
 No deployment, production database migration, or real Dodo charge is part of this Draft PR.
+
+
+## Historical Dodo subscription ownership: operator review procedure (2026-10-16)
+
+**No automatic customer claim is enabled.** There are three historical active Premium rows, two with a Dodo customer ID and one without. This procedure covers verified billing ownership, not guesses based on cached browser identifiers.
+
+### Eligible proof
+1. The customer first signs in through a **verified** Neon Auth identity; the backend validates JWT signature/issuer and the account's `neon_auth.user.emailVerified` state. A self-reported email or unsigned browser localStorage token is not proof.
+2. A reviewer retrieves the **exact Dodo customer/subscription/payment record** from Dodo's authenticated **LIVE merchant dashboard or API**, checking successful payments, the subscription's actual paid period, customer ID, and billing contact. Never retrieve this information from unverified browser input. Do not paste API keys or full customer information into GitHub.
+3. Reviewer requires an **independent subscriber-possession check**, such as a single-use challenge delivered by the merchant through a trusted channel to the *billing email on Dodo's record*, not a customer-supplied address. The applicant must complete it while authenticated as their Neon identity. The challenge implementation and mail delivery are **not yet built**. A customer portal link is **not** a claim proof: merchant-generated links can be opened by anyone holding the link.
+4. Two reviewers or an authenticated admin-only process record the decision with a private ticket reference; verify there is no competing claim. Historical Dodo activity must match the legacy row's `dodo_customer_id`, including any cancellation/chargeback disposition.
+5. Only after evidence passes, a trusted backend operator can call the **internal function** `linkLegacyPremiumAfterReview` using a callback that verifies evidence from the operator's trusted records. The callback must NOT simply return `{verified:true}` based on untrusted claimant-supplied values. The transaction atomically maps the verified identity to the legacy paid user, retains `premium_expires`, writes `legacy_account_claims`, and denies duplicates and paid-account collisions.
+6. For the third legacy record lacking `dodo_customer_id`: **stop**. First reconcile signed webhook IDs with authoritative Dodo merchant transactions to restore the customer mapping. No transfer until corroborated.
+7. Issue a confirmation to the affected subscriber and verify the original account and its paid expiry remain accessible. Monitor claim failures and provide a reversible admin-only recovery process before production.
+
+### Explicitly unacceptable evidence
+- User-controlled `muscleMap_userId` or `muscleMap_premium`.
+- Email equality by itself, screenshot, guessed customer ID, pasted invoice text, or a Dodo portal URL.
+- Merchant-generated Dodo portal `send_email=true` alone without a completed proof, since requesting a delivery is not evidence that the requester is the recipient.
+- Test/sandbox Dodo transaction as proof of a LIVE paid entitlement.
+
+### Neon email verification release blocker
+Managed Neon Auth supports mandatory email verification (OTP) at the **Neon Auth Email & Password configuration**, including `require_email_verification`, `verify_email_on_sign_up` and `verify_email_on_sign_in`. The currently available Neon connector exposes **read/configure application name**, but does not expose the separate email/password settings PATCH operation. Therefore these flags have **not** been changed via the connector. Until an authorized operator switches them for the **staging** branch in Neon Console and tests actual email delivery/code redemption with an inbox, the end-to-end email challenge remains **unverified**. Do not switch production or retire legacy API.
+The backend Draft PR now supports `REQUIRE_EMAIL_VERIFICATION=true` to reject Neon-authenticated but unverified users at **all protected v2 entry points**, with the authoritative `emailVerified` value read from the Neon Auth schema. The isolated HTTP integration test uses a disposable PostgreSQL fixture for that property. Test-fixture promotion to true does NOT itself constitute a real verification email.
+Frontend Draft PR #11 contains the OTP input/resend/verify UI, controlled by `emailVerificationRequired` in `account-config.js`. It remains false until Neon genuinely requires verification.
+
+References:
+- Neon API settings: https://api-docs.neon.tech/reference/updateneonauthemailandpasswordconfig
+- Better Auth OTP endpoints: https://better-auth.com/docs/1.6/plugins/email-otp
+- Dodo portal API: https://docs.dodopayments.com/api-reference/customers
