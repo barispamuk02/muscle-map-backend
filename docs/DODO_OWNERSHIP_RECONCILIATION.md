@@ -47,3 +47,15 @@ No such operational service or live-admin challenge is deployed yet. Internal sy
 ## Automated validation outcome
 
 GitHub Actions backend Draft CI run `38853127990` passed all Node regression and disposable PostgreSQL integration checks, including an exact provider-paid period, no-payment/duplicate regressions, merchant GET-only requests, bad/expired/replayed OTP, per-hour throttling, and an audited **synthetic** Dodo claim. Isolated Auth HTTP E2E run `38853127985` also passed. Neither run had real Dodo credentials nor delivered email.
+
+
+## 2026-10-16: Resend staging mail transport
+
+- Domain `notify.muscle-map.app` verified in Resend; DNS DKIM and both outbound CNAMEs confirmed, incoming delivery remains at the existing separate provider.
+- Resend API key named `muscle-map-staging-mail` stored under **Render staging** environment key `RESEND_API_KEY` (value never copied to GitHub, ChatGPT or logs). Key presence in Render UI is not proof that Resend has accepted a real message yet.
+- `resend-mailer.js`: trusted server mail adapter uses `POST https://api.resend.com/emails`, fixed `Muscle Map Security <security@notify.muscle-map.app>` sender, separate one-time idempotency per claim code, no secret/recipient logging and no checkout/payments API access.
+- `billing-email-otp.js`: passes server-generated `challengeId` to mail adapter; actual ownership challenge still requires a trusted operator-selected Dodo recipient and separate `OTP_HMAC_SECRET` before it may be deployed for real subscribers.
+- `staging-mail-test.js`, `/api/staging/me/mail-test`: **staging-only**, gated by `STAGING_MAIL_TEST_ENABLED=true`, needs signed Neon JWT, reads email only from verified non-banned Neon Auth user, rejects an arbitrary request body, and sends a harmless "email transport test" no more than once per 24h per account. This does **not** verify Dodo ownership or change Premium.
+- PostgreSQL stores the last staging-mail test timestamp, and the sender uses deterministic same-day Resend idempotency. Existing Live Dodo APIs remain inaccessible in staging.
+- Backend mocked Resend + disposable PostgreSQL CI **passed**; frontend desktop/mobile/browser CI **passed**. Staging Render deploy `dep-db8rgn6q1p3s7394shrg` reported `live` with `DB initialized`. Manual delivery to a genuine mailbox is still pending.
+- Release blocker: real Resend API send/delivery + anti-abuse verification, independently reconciled Dodo paid period, separate billing-email OTP proof, authenticated admin-only migration, refund/dispute cases and controlled rollout. No production deploy or historical account transfer.
