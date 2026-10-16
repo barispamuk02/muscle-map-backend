@@ -48,7 +48,7 @@ test('protected HTTP Premium enforces signed identity, verified email and stagin
             res.end(JSON.stringify({keys:[jwk]}));
         });
         await new Promise(resolve=>keyServer.listen(0,'127.0.0.1',resolve));
-        const jwksUrl = 'https://localhost:'+keyServer.address().port+'/.well-known/jwks.json';
+        const jwksUrl = 'https://127.0.0.1:'+keyServer.address().port+'/.well-known/jwks.json';
         const issuer = 'https://issuer.staging.muscle-map.test';
         const subject = randomUUID();
         const token = await new SignJWT({})
