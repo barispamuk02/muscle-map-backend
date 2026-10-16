@@ -75,12 +75,27 @@ try {
     assert.equal(Number((await reader.query("SELECT COUNT(*) AS c FROM users WHERE id='u_ci_rollback'")).rows[0].c), 0);
     console.log('PAYMENT_LEDGER_ROLLBACK_OK');
 
-    const unknownPayment = await processDodoEvent({
-        type:'payment.succeeded',data:{ metadata:{user_id:'u_ci_payment_no_id'}, total_amount: 399,currency:'USD'}
-    }, 'evt_ci_no_payment_id', deps, new Date('2026-10-15T00:00:00Z'));
-    assert.equal(unknownPayment.skipped, false);
-    assert.equal(Number((await reader.query("SELECT COUNT(*) AS c FROM payments WHERE id='webhook:evt_ci_no_payment_id'")).rows[0].c), 1);
-    console.log('PAYMENT_LEDGER_WEBHOOK_FALLBACK_OK');
+    // Dodo's payment payload requires payment_id. An absent ID is NOT
+    // safely de-duplicated by webhook-id across different deliveries.
+    await assert.rejects(
+        processDodoEvent({
+            type:'payment.succeeded',data:{ metadata:{user_id:'u_ci_payment_no_id'}, total_amount:399,currency:'USD'}
+        },'evt_ci_no_payment_id',deps,new Date('2026-10-15T00:00:00Z')),
+        /Missing or invalid Dodo payment_id/
+    );
+    assert.equal(Number((await reader.query("SELECT COUNT(*) AS c FROM payments WHERE id='webhook:evt_ci_no_payment_id'")).rows[0].c),0);
+    assert.equal(Number((await reader.query("SELECT COUNT(*) AS c FROM webhook_events WHERE id='evt_ci_no_payment_id'")).rows[0].c),0);
+    console.log('PAYMENT_LEDGER_MISSING_ID_REJECTED_OK');
+
+    const zeroSetup = await processDodoEvent({
+        type:'payment.succeeded',
+        data:{ is_update_payment_method:true, metadata:{ user_id:'u_ci_setup_only' },
+            payment_id:'pay_ci_setup_only',total_amount:0,currency:'USD' }
+    },'evt_ci_setup_only',deps,new Date('2026-10-15T00:00:00Z'));
+    assert.equal(zeroSetup.result.action,'payment_method_update_ignored');
+    assert.equal((await getPremiumStatus('u_ci_setup_only')).premium,false);
+    assert.equal(Number((await reader.query("SELECT COUNT(*) AS c FROM payments WHERE dodo_payment_id='pay_ci_setup_only'")).rows[0].c),0);
+    console.log('PAYMENT_METHOD_UPDATE_NOT_PAID_OK');
 
     console.log('REAL_POSTGRES_PAYMENT_LEDGER_ALL_OK');
 } finally {
