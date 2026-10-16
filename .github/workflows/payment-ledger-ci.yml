@@ -54,6 +54,7 @@ jobs:
           node --check scripts/staging-claim-preview.mjs
           node --check tests/staging-claim-operator.test.js
           node --check tests/legacy-claim-rollback.integration.mjs
+          node --check tests/premium-period-reconciliation.integration.mjs
           node --check dodo-ownership-audit.js
           node --check dodo-merchant-preview.js
           node --check scripts/dodo-live-audit.mjs
@@ -83,6 +84,8 @@ jobs:
         run: node tests/payment-ledger.integration.mjs
       - name: PostgreSQL verified-claim rollback and audit (synthetic records only)
         run: node tests/legacy-claim-rollback.integration.mjs
+      - name: PostgreSQL one-step paid period reconciliation (synthetic only)
+        run: node tests/premium-period-reconciliation.integration.mjs
       - name: PostgreSQL independent billing-email OTP and Dodo audit
         run: node tests/billing-email-otp.integration.mjs
       - name: PostgreSQL staging email delivery throttle (mock Resend)
