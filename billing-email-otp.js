@@ -108,3 +108,31 @@ export async function confirmBillingEmailChallenge({
         throw err;
     }finally{client.release();}
 }
+
+
+/**
+ * Trusted server-side evidence loader. Never accept a challenge object directly
+ * from the browser when authorizing an account migration.
+ */
+export async function readConsumedBillingChallenge({
+    challengeId,issuer,subject,db=pool,now=new Date()
+}) {
+    if(!valid(challengeId,'clm')||typeof issuer!=='string'||typeof subject!=='string')
+        throw Error('Invalid private challenge lookup');
+    const r=await db.query(
+        'SELECT issuer,subject,customer_id,recipient_email,sent_at,consumed_at,expires_at,attempts FROM billing_email_challenges WHERE id=$1',
+        [challengeId]
+    );
+    const x=r.rows[0];
+    const confirmed=new Date(x?.consumed_at);
+    if(!x||x.issuer!==issuer||x.subject!==subject||!x.sent_at||
+        !x.consumed_at||!Number.isFinite(confirmed.getTime())||
+        confirmed>now||confirmed.getTime()>new Date(x.expires_at).getTime()||
+        now.getTime()-confirmed.getTime()>10*60000||x.attempts>5)
+        throw Error('No recent consumed billing email challenge');
+    return {
+        challengeId,method:'billing_email_otp',status:'consumed_once',
+        issuer,subject,customerId:x.customer_id,
+        recipientEmail:x.recipient_email,verifiedAt:confirmed.toISOString()
+    };
+}
