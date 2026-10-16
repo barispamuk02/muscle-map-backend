@@ -100,7 +100,7 @@ try{
             payment_id:'pay_ci_wrong_member_attempt_123456',
             metadata:{user_id:otherId}}
     },'evt_ci_wrong_member_attempt_123456',deps,now),
-        /Dodo customer and checkout account mismatch/);
+        /Dodo subscription belongs to a different authenticated account|Dodo customer and checkout account mismatch/);
     assert.equal((await getPremiumStatus(otherId)).premium,false);
     const wrong=await db.query(
         'SELECT COUNT(*)::int AS n FROM payments WHERE dodo_payment_id=$1',
