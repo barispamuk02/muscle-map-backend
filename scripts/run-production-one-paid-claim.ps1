@@ -93,13 +93,8 @@ try{
     $env:RESEND_API_KEY=Read-Private 'Domain-scoped Resend send-only key (hidden)'
     $env:PRODUCTION_OPERATOR_PASSPHRASE=Read-Private 'Existing distinct Production key passphrase (hidden)'
 
-    Write-Host 'One owner verified Auth + current Dodo LIVE GET + one fresh billing OTP.' -ForegroundColor Cyan
-    Write-Host 'If proven, this will attach ONLY ONE old paid Premium account; old unrelated rows stay untouched.' -ForegroundColor Yellow
-    $approval=(Read-Host 'For single authorized Production paid transfer type CLAIM ONE PAID PREMIUM').Trim()
-    if($approval -cne 'CLAIM ONE PAID PREMIUM'){
-        Write-Host 'CANCELLED_BEFORE_ANY_PRODUCTION_PREMIUM_WRITE'
-        return
-    }
+    Write-Host 'Read-only owner and merchant preflight first. Consent is requested only if those checks pass.' -ForegroundColor Cyan
+    Write-Host 'No Premium claim can be written before a separate confirmation inside the Node operator.' -ForegroundColor Yellow
     $env:PRODUCTION_OWNER_ACTION='INITIALIZE_ONE_VERIFIED_PLACEHOLDER'
     $env:PRODUCTION_OWNER_APPROVAL='ALLOW_ONE_AUTH_PLACEHOLDER_NO_PREMIUM'
     $env:PRODUCTION_CLAIM_ACTION='APPLY_APPROVED_SINGLE_PAID_CLAIM'
