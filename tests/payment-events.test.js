@@ -30,12 +30,29 @@ test('expired, missing and malformed signature metadata are rejected', () => {
     assert.equal(verifyDodoSignature(body, headers, '', timestamp), false);
 });
 
-test('expiry handles valid renewal and broken, expired, implausible dates', () => {
-    assert.equal(resolvePremiumExpiry({ next_billing_date: '2026-11-15T00:00:00Z' }, now).toISOString(), '2026-11-15T00:00:00.000Z');
-    for (const value of ['no date', '2046-01-01', '2025-01-01']) {
-        assert.equal(resolvePremiumExpiry({ next_billing_date: value }, now).toISOString(), '2026-11-14T12:00:00.000Z');
+test('expiry uses exact provider-paid service periods, not 30-day guesses', () => {
+    const examples = [
+        ['2026-10-15T00:00:00Z', '2026-11-15T00:00:00Z'],
+        ['2027-02-01T00:00:00Z', '2027-03-01T00:00:00Z'],
+        ['2028-02-01T00:00:00Z', '2028-03-01T00:00:00Z'],
+        ['2026-12-14T00:00:00Z', '2027-01-14T00:00:00Z']
+    ];
+    for (const [starts_at, ends_at] of examples) {
+        const data=paidPeriod(ends_at);
+        data.service_periods[0].starts_at=starts_at;
+        assert.equal(resolvePremiumExpiry(data,new Date(starts_at)).toISOString(),new Date(ends_at).toISOString());
     }
+    assert.throws(() => resolvePremiumExpiry({next_billing_date:'2026-11-15T00:00:00Z'},now),/service_periods/);
+    assert.throws(() => resolvePremiumExpiry({...paidPeriod(),service_periods:[]},now),/service_periods/);
+    assert.throws(() => resolvePremiumExpiry({...paidPeriod(),subscription_ids:['sub_wrong']},now),/mismatch/);
+    assert.throws(() => resolvePremiumExpiry({...paidPeriod(),service_periods:[{subscription_id:'sub_ci_98765',starts_at:'2026-10-15T00:00:00Z',ends_at:'2046-01-01T00:00:00Z'}]},now),/invalid/);
 });
+
+function paidPeriod(end = '2026-11-15T00:00:00Z') {
+    return { subscription_id: 'sub_ci_98765', subscription_ids: ['sub_ci_98765'],
+        service_periods: [{ subscription_id:'sub_ci_98765',
+            starts_at:'2026-10-15T00:00:00Z',ends_at:end }] };
+}
 
 function fakeDependencies() {
     const applied = new Set(), users = new Map();
@@ -64,7 +81,7 @@ function fakeDependencies() {
 
 test('successful payment activates only one time for duplicate event', async () => {
     const { deps, users, applied } = fakeDependencies();
-    const event = { type: 'payment.succeeded', data: { metadata: { user_id: 'u_good' }, next_billing_date: '2026-11-15' } };
+    const event = { type: 'payment.succeeded', data: { metadata: { user_id: 'u_good' }, ...paidPeriod() } };
     const a = await processDodoEvent(event, 'evt_payment', deps, now);
     const b = await processDodoEvent(event, 'evt_payment', deps, now);
     assert.equal(a.skipped, false); assert.equal(b.skipped, true);
@@ -72,21 +89,17 @@ test('successful payment activates only one time for duplicate event', async () 
     assert.equal(users.get('u_good'), '2026-11-15T00:00:00.000Z');
 });
 
-test('processing failures are retryable; marker is not committed prematurely', async () => {
-    const { deps, users, applied } = fakeDependencies();
-    const paid = { type: 'subscription.active', data: { metadata: { user_id: 'u_retry' } } };
-    let attempts = 0;
-    const realSet = deps.setPremium;
-    deps.setPremium = async (...args) => { if (++attempts === 1) throw Error('database outage'); await realSet(...args); };
-    await assert.rejects(() => processDodoEvent(paid, 'evt_retry', deps, now), /database outage/);
-    assert.equal(applied.size, 0);
-    await processDodoEvent(paid, 'evt_retry', deps, now);
-    assert.equal(applied.size, 1); assert.ok(users.has('u_retry'));
+test('invalid paid period rolls back without granting Premium', async () => {
+    const {deps,users,applied}=fakeDependencies();
+    const event={type:'payment.succeeded',data:{metadata:{user_id:'u_retry'},payment_id:'pay_retry',subscription_ids:['sub_ci_98765'],service_periods:[]}};
+    await assert.rejects(()=>processDodoEvent(event,'evt_retry',deps,now),/service_periods/);
+    assert.equal(applied.size,0);
+    assert.equal(users.has('u_retry'),false);
 });
 
 test('customer lookup, expiration, cancellation work without revoking early', async () => {
     const { deps, users } = fakeDependencies();
-    await processDodoEvent({ type: 'payment.succeeded', data: { customer: { customer_id: 'cus_known' } } }, 'evt_1', deps, now);
+    await processDodoEvent({ type: 'payment.succeeded', data: { customer: { customer_id: 'cus_known' },...paidPeriod() } }, 'evt_1', deps, now);
     assert.ok(users.has('u_known'));
     await processDodoEvent({ type: 'subscription.cancelled', data: { customer: { customer_id: 'cus_known' } } }, 'evt_2', deps, now);
     assert.notEqual(users.get('u_known'), new Date(0).toISOString());
@@ -115,8 +128,8 @@ test('same Dodo payment ID across distinct webhook IDs does not extend Premium t
         stored.add(id);
         return true;
     };
-    const a = { type: 'payment.succeeded', data: { payment_id:'pay_001', metadata: { user_id:'u_known' }, next_billing_date:'2026-11-15' } };
-    const b = { type: 'payment.succeeded', data: { payment_id:'pay_001', metadata: { user_id:'u_known' }, next_billing_date:'2026-12-15' } };
+    const a = { type: 'payment.succeeded', data: { payment_id:'pay_001', metadata: { user_id:'u_known' }, ...paidPeriod() } };
+    const b = { type: 'payment.succeeded', data: { payment_id:'pay_001', metadata: { user_id:'u_known' }, ...paidPeriod('2026-12-15T00:00:00Z') } };
     const first = await processDodoEvent(a, 'evt_first', deps, now);
     const duplicate = await processDodoEvent(b, 'evt_second', deps, now);
     assert.equal(first.result.action,'premium_activated');
@@ -126,18 +139,18 @@ test('same Dodo payment ID across distinct webhook IDs does not extend Premium t
     assert.equal(recorded.length,2);
 });
 
-test('subscription.active is an entitlement event but does not create a payment record', async () => {
-    const { deps, users } = fakeDependencies();
-    let calls = 0;
-    deps.recordSuccessfulPayment = async () => { calls++; return true; };
-    await processDodoEvent({type:'subscription.active', data: {metadata:{user_id:'u_active'}}},'evt_active',deps,now);
-    assert.ok(users.has('u_active'));
-    assert.equal(calls,0);
+test('subscription.active only tracks state and never grants without payment proof',async()=>{
+    const {deps,users}=fakeDependencies();
+    let count=0;
+    deps.recordSuccessfulPayment=async()=>{count++;return true;};
+    const r=await processDodoEvent({type:'subscription.active',data:{metadata:{user_id:'u_active'},next_billing_date:'2026-11-15T00:00:00Z'}},'evt_active',deps,now);
+    assert.equal(r.result.action,'subscription_state_only');
+    assert.equal(users.has('u_active'),false);
+    assert.equal(count,0);
 });
-
 test('payment ledger failure keeps entire webhook unacknowledged and retryable', async () => {
     const { deps, applied } = fakeDependencies();
     deps.recordSuccessfulPayment = async () => { throw Error('ledger unavailable'); };
-    await assert.rejects(() => processDodoEvent({type:'payment.succeeded',data:{metadata:{user_id:'u_retry_ledger'}}},'evt_failed_ledger',deps,now), /ledger unavailable/);
+    await assert.rejects(() => processDodoEvent({type:'payment.succeeded',data:{metadata:{user_id:'u_retry_ledger'},payment_id:'pay_retry_ledger',...paidPeriod()}},'evt_failed_ledger',deps,now), /ledger unavailable/);
     assert.equal(applied.size,0);
 });
