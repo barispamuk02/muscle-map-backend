@@ -11,7 +11,18 @@ try{
     console.log('PRIVATE_KEY_EXPORTED=NO');
     console.log('STAGING_DATABASE_WRITES=NONE');
     console.log('PREMIUM_TRANSFER=NOT_PERFORMED');
-}catch{
-    console.error('LOCAL_OPERATOR_KEY_ENROLLMENT_FAILED_NO_ACCOUNT_CHANGE');
+}catch(error){
+    // Permit only known, constant error codes. Never print paths,
+    // passphrases or raw crypto exception details.
+    const known=new Set([
+        'LOCAL_OPERATOR_PASSPHRASE_INVALID',
+        'LOCAL_OPERATOR_ENCRYPTED_KEY_UNAVAILABLE_OR_BAD_PASSPHRASE',
+        'LOCAL_OPERATOR_KEY_FILE_EXISTS_OR_UNWRITABLE',
+        'LOCAL_OPERATOR_INVALID_PRIVATE_KEY',
+        'LOCAL_OPERATOR_ENROLLMENT_NOT_AUTHORIZED'
+    ]);
+    const safe=known.has(error?.message)?error.message:'LOCAL_OPERATOR_CRYPTO_OR_FILE_ERROR';
+    console.error('LOCAL_OPERATOR_KEY_FAILURE='+safe);
+    console.error('PREMIUM_TRANSFER=NOT_PERFORMED');
     process.exitCode=1;
 }
