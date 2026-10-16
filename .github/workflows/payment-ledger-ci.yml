@@ -47,6 +47,8 @@ jobs:
           node --check auth-identity.js
           node --check legacy-account-claim.js
           node --check dodo-ownership-audit.js
+          node --check dodo-merchant-preview.js
+          node --check scripts/dodo-live-audit.mjs
           node --check billing-email-otp.js
           node --check trusted-dodo-claim-review.js
           node --check resend-mailer.js
