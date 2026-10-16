@@ -11,8 +11,8 @@ try {
     await pool.query('CREATE SCHEMA IF NOT EXISTS neon_auth');
     await pool.query('CREATE TABLE IF NOT EXISTS neon_auth."user" (id uuid PRIMARY KEY,email text NOT NULL,"emailVerified" boolean NOT NULL,banned boolean NOT NULL DEFAULT false)');
     const issuer='https://staging.example.test';
-    const verified='11111111-2222-4333-8444-555555555555';
-    const unverified='aaaaaaaa-2222-4333-8444-555555555555';
+    const verified='77777777-2222-4333-8444-555555555555';
+    const unverified='88888888-2222-4333-8444-555555555555';
     await pool.query('INSERT INTO neon_auth."user"(id,email,"emailVerified",banned) VALUES ($1,$2,true,false),($3,$4,false,false) ON CONFLICT (id) DO NOTHING',
         [verified,'verified@example.test',unverified,'unverified@example.test']);
     let count=0,last=null;
