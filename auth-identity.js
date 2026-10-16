@@ -14,7 +14,9 @@ export class AuthenticationError extends Error {
 }
 
 export function isAuthConfigured(env = process.env) {
-    return Boolean(env.AUTH_ISSUER && env.AUTH_AUDIENCE && env.AUTH_JWKS_URL);
+    const provider = env.AUTH_PROVIDER === 'neon' ? 'neon' : 'oidc';
+    return Boolean(env.AUTH_ISSUER && env.AUTH_JWKS_URL &&
+        (provider === 'neon' || env.AUTH_AUDIENCE));
 }
 
 export async function authenticateBearer(header, env = process.env, trustedKeySource = null) {
@@ -38,12 +40,16 @@ export async function authenticateBearer(header, env = process.env, trustedKeySo
         keySource = jwksCache.get(url.href);
     }
     try {
-        const { payload } = await jwtVerify(match[1], keySource, {
+        const neon = env.AUTH_PROVIDER === 'neon';
+        const options = {
             issuer: env.AUTH_ISSUER,
-            audience: env.AUTH_AUDIENCE,
-            algorithms: ['RS256', 'ES256'],
+            // Neon Managed Better Auth JWTs use EdDSA and expose issuer as auth URL origin.
+            // Do not require an audience that the managed issuer does not guarantee.
+            ...(neon ? {} : { audience: env.AUTH_AUDIENCE }),
+            algorithms: neon ? ['EdDSA'] : ['RS256', 'ES256'],
             clockTolerance: '30s'
-        });
+        };
+        const { payload } = await jwtVerify(match[1], keySource, options);
         if (typeof payload.sub !== 'string' || !payload.sub || payload.sub.length > 255) {
             throw Error('Invalid identity subject');
         }
