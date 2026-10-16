@@ -14,6 +14,7 @@ import {
 } from './db.js';
 import { verifyDodoSignature, processDodoEvent } from './payment-events.js';
 import { authenticateBearer, AuthenticationError, isAuthConfigured } from './auth-identity.js';
+import { sendStagingVerifiedMail } from './staging-mail-test.js';
 
 const app = express();
 const stagingOnly = process.env.APP_ENV === 'staging';
@@ -71,6 +72,39 @@ app.get('/api/v2/me/premium', async (req, res) => {
         res.json({ userId, ...(await getPremiumStatus(userId)) });
     } catch (error) {
         writeAuthError(res, error);
+    }
+});
+
+// No arbitrary recipients. A signed token identifies the verified Neon user,
+// and the recipient is looked up on the trusted Neon Auth database server-side.
+// This staging-only endpoint cannot initiate Dodo billing or link Premium.
+app.post('/api/staging/me/mail-test', async (req,res) => {
+    res.set('Cache-Control','no-store');
+    if (!stagingOnly || process.env.STAGING_MAIL_TEST_ENABLED !== 'true') {
+        return res.status(404).json({error:'not available'});
+    }
+    if (req.body && Object.keys(req.body).length !== 0) {
+        return res.status(400).json({error:'request body not permitted'});
+    }
+    try {
+        const identity=await authenticateBearer(req.headers.authorization);
+        await sendStagingVerifiedMail(identity);
+        return res.status(202).json({ok:true,message:'test email accepted'});
+    } catch(error) {
+        if(error instanceof AuthenticationError) return writeAuthError(res,error);
+        if(error.message==='MAIL_IDENTITY_NOT_VERIFIED') {
+            return res.status(403).json({error:'email verification required'});
+        }
+        if(error.message==='MAIL_TEST_RATE_LIMIT') {
+            return res.status(429).json({error:'one test per 24 hours'});
+        }
+        if(error.message==='MAIL_NOT_CONFIGURED' ||
+           error.message==='MAIL_DELIVERY_UNAVAILABLE') {
+            return res.status(503).json({error:'email service unavailable'});
+        }
+        // No error messages, recipient, OTP or secrets are returned to clients.
+        console.error('Staging mail test unsuccessful:',error.name);
+        return res.status(500).json({error:'internal'});
     }
 });
 
