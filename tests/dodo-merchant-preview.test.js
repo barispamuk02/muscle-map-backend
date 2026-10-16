@@ -27,7 +27,7 @@ test('October 14 -> November 14 period is exact and no claimant linkage is impli
     const x=good(),summary=summarizeDodoMerchantEvidence(x.payment,x.subscription,t);
     assert.equal(summary.paidThroughUtc,'2026-11-14T04:23:00.000Z');
     assert.equal(summary.accountOwnership,'NOT_VERIFIED');
-    assert.equal(summary.legacyNeonAccountLinked,false);
+    assert.equal(summary.legacyNeonAccountLinked,'NOT_CHECKED');
     assert.equal(summary.paymentAndSubscriptionBillingEmailMatch,true);
     assert.equal(summary.refundOrDispute,'NONE_IN_PAYMENT_DETAILS');
     assert.ok(!JSON.stringify(summary).includes(customer));
