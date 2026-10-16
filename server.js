@@ -136,6 +136,7 @@ app.post('/api/v2/me/checkout', async (req, res) => {
 });
 
 app.post('/api/checkout', async (req, res) => {
+    if (stagingOnly) return res.status(404).json({ error: 'not available in staging' });
     if (requireAuth) return res.status(403).json({ error: 'verified account required' });
     try {
         const { userId, email } = req.body || {};
