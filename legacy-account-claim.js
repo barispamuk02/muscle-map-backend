@@ -84,9 +84,9 @@ export async function linkLegacyPremiumAfterReview(input, verifyEvidence, databa
         // The claim audit insertion must succeed before binding the legacy ID.
         await db.query(
             `INSERT INTO legacy_account_claims
-            (legacy_user_id,issuer,subject,dodo_customer_id,evidence_reference,proof_method,reviewed_by)
-            VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-            [legacyUserId,issuer,subject,proof.dodoCustomerId,evidenceReference,proofMethod,reviewedBy]
+            (legacy_user_id,issuer,subject,dodo_customer_id,evidence_reference,proof_method,reviewed_by,previous_user_id,premium_expires_at_claim)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+            [legacyUserId,issuer,subject,proof.dodoCustomerId,evidenceReference,proofMethod,reviewedBy,currentUserId,legacy.rows[0].premium_expires]
         );
         await db.query(
             'UPDATE auth_identities SET user_id=$1 WHERE issuer=$2 AND subject=$3',
