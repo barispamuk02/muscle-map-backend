@@ -57,6 +57,8 @@ export async function initDb() {
     // without a snapshot cannot be automatically reversed.
     await pool.query('ALTER TABLE legacy_account_claims ADD COLUMN IF NOT EXISTS previous_user_id TEXT REFERENCES users(id)');
     await pool.query('ALTER TABLE legacy_account_claims ADD COLUMN IF NOT EXISTS premium_expires_at_claim TIMESTAMPTZ');
+    await pool.query('ALTER TABLE legacy_account_claims ADD COLUMN IF NOT EXISTS operator_approval_reference TEXT');
+    await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_legacy_claim_approval ON legacy_account_claims(operator_approval_reference) WHERE operator_approval_reference IS NOT NULL');
     await pool.query(`CREATE TABLE IF NOT EXISTS legacy_account_claim_reversals (
         legacy_user_id TEXT PRIMARY KEY REFERENCES legacy_account_claims(legacy_user_id),
         previous_user_id TEXT NOT NULL UNIQUE REFERENCES users(id),
