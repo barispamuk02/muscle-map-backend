@@ -174,17 +174,25 @@ try {
     const claim = {
         issuer:claimIssuer,subject:'verified_ci_1',legacyUserId:oldId,
         reviewedBy:'ci-reviewer',proofMethod:'dodo_merchant_manually_verified',
-        evidenceReference:'ci-proof-ticket-001'
+        evidenceReference:'dodo-audit:clm_'+'a'.repeat(40)
     };
     await assert.rejects(
-        linkLegacyPremiumAfterReview(claim, async () => ({verified:true,dodoCustomerId:'cus_wrong_customer'})),
+        linkLegacyPremiumAfterReview(claim, async () => ({verified:true,dodoCustomerId:'cus_wrong_customer',evidenceReference:claim.evidenceReference,paidThrough:oldExpiry})),
         /does not match verified Dodo customer/
     );
     await assert.rejects(
         linkLegacyPremiumAfterReview(claim, async () => ({verified:false,dodoCustomerId:dodoId})),
         /not verified/
     );
-    const confirmDodo = async () => ({verified:true,dodoCustomerId:dodoId});
+    const confirmDodo = async ({evidenceReference}) => ({verified:true,dodoCustomerId:dodoId,evidenceReference,paidThrough:oldExpiry});
+    await assert.rejects(
+        linkLegacyPremiumAfterReview(claim, async () => ({
+            verified:true,dodoCustomerId:dodoId,
+            evidenceReference:'dodo-audit:clm_'+'f'.repeat(40),
+            paidThrough:oldExpiry
+        })),
+        /not verified/
+    );
     const linked = await linkLegacyPremiumAfterReview(claim, confirmDodo);
     assert.deepEqual(linked,{userId:oldId,alreadyLinked:false});
     assert.equal(await getAccountUserId({issuer:claimIssuer,subject:'verified_ci_1'}),oldId);
@@ -195,7 +203,7 @@ try {
     assert.equal((await linkLegacyPremiumAfterReview(claim,confirmDodo)).alreadyLinked,true);
     await getAccountUserId({issuer:claimIssuer,subject:'verified_ci_2'});
     await assert.rejects(
-        linkLegacyPremiumAfterReview({...claim,subject:'verified_ci_2',evidenceReference:'ci-proof-ticket-002'},confirmDodo),
+        linkLegacyPremiumAfterReview({...claim,subject:'verified_ci_2',evidenceReference:'dodo-audit:clm_'+'b'.repeat(40)},confirmDodo),
         /already claimed/
     );
     assert.equal(await getAccountUserId({issuer:claimIssuer,subject:'verified_ci_1'}),oldId);
