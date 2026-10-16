@@ -33,7 +33,7 @@ test('claim code is limited to a valid 6-digit value and an idempotent challenge
         challengeId:'clm_'+'a'.repeat(40)
     },cfg);
     assert.equal(data.accepted,true);
-    await assert.rejects(sendBillingClaimCode({
+    assert.throws(()=>sendBillingClaimCode({
         to:cfg.to,code:'not-a-code',expiresAt:'2026-10-16T06:00:00Z',
         challengeId:'clm_'+'a'.repeat(40)
     },cfg),/INVALID_MAIL_REQUEST/);
