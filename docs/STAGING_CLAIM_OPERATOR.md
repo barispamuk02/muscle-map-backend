@@ -1,6 +1,6 @@
 # Isolated Neon STAGING Premium claim: privileged local operator
 
-Status **PREVIEW-ONLY**. Source is on backend Draft PR #2. No real staging customer has been linked. No public HTTP route, browser feature, Render job or production command exposes claim execution.
+Status **PUBLIC FINGERPRINT ENROLLED, NO LIVE APPLY CLI**. Source is on backend Draft PR #2. No real staging customer has been linked. No public HTTP route, browser feature, Render job or production command exposes claim execution.
 
 ## Why the preview and apply are separate
 
@@ -26,11 +26,11 @@ The Node entrypoint:
 
 If checks fail, preview stops. After completion, the launcher clears the temporary environment variables. Never post keys, customer identifiers, paid email, challenge ID or OTP into ChatGPT, GitHub or logs.
 
-## FUTURE privileged apply: disabled until enrollment and separate authorization
+## FUTURE privileged apply: enrolled local key, pending operator workflow and separate authorization
 
-The unexposed function applyApprovedStagingPremiumClaim in staging-claim-operator.js is coded but **hard-disabled** by ENROLLED_OPERATOR_ED25519_FINGERPRINT=null.
+The unexposed function applyApprovedStagingPremiumClaim in staging-claim-operator.js now pins the owner-provided **public fingerprint** `68dc0b78c07acaa3e3e867744fcfa7f06182852140be02a52fa18dab6a079cac`. It still requires exact local operator APPLY mode, valid time-limited signed approval bound to the OTP, and fresh independently verified Dodo billing evidence. No runnable apply CLI is exposed.
 
-A later, separately approved owner enrollment must register a trusted administrator Ed25519 **public key fingerprint** in reviewed source configuration. Only the public key may be shared for enrollment; the administrator's **private signing key must never leave the administrator's computer** and must not be placed in chat, a repository, logs or cloud configuration.
+The operator encrypted Ed25519 private key is stored on the owner's Windows workstation. Only its SHA-256 **public** fingerprint is pinned in reviewed draft source configuration; the private signing key and its passphrase must never leave the operator's computer or enter chat, repository, logs or cloud configuration. Pinned fingerprint is not an approval for a real database mutation.
 
 The future operator must:
 - Independently verify a genuine signed-in Neon Auth subject and current non-banned verified email;
@@ -41,20 +41,20 @@ The future operator must:
 - Require explicit operator apply mode and conduct merchant + OTP verification again immediately before a single transactional claim. A SHA-256 signature reference is stored on the durable claim audit with a unique index, so an approval cannot be silently reused for another link.
 - Verify migrated account entitlement, original customer mapping and audit state after the mutation. Keep a reviewed rollback plan, and do not automatically reverse if a new payment or expiry update has occurred.
 
-The signing-key enrollment, real operator-signing workflow, real apply CLI, claim-time production-grade admin authentication and rollback rehearsal using a dedicated database backup are **NOT YET completed**. No actual APPLY may be attempted until each prerequisite is reviewed and the owner explicitly approves the named staging action.
+The local signing-key enrollment and public fingerprint pinning are COMPLETE. The complete real operator-signing workflow, real apply CLI, claim-time operator authentication and rollback rehearsal using a dedicated database backup are **NOT YET completed**. No actual APPLY may be attempted until each prerequisite is reviewed and the owner explicitly approves the named staging action.
 
 ## Test coverage
 
 - tests/staging-claim-operator.test.js verifies environment isolation, merchant GET and Neon SELECT only, Dodo/legacy expiry mismatch detection, wrong merchant state, exact Ed25519 signature validation and invalid/expired/mismatched unsigned or mis-signed approvals;
 - Production credentials and wrong database hosts are rejected;
-- Applying without enrolled trusted administrator key rejects **before any Dodo or database request**;
+- Applying without explicit local operator APPLY mode rejects **before any Dodo or database request**, even with the pinned fingerprint;
 - tests/legacy-claim-rollback.integration.mjs already verifies transactional forward/rollback against disposable PostgreSQL, including conflict and injected-failure cases.
 
 Run only via GitHub Actions or disposable local test DB. Never run integration tests against Neon staging or production.
 
 ## Important boundaries
 
-The draft code is **not a live secure admin UI**. The signed approval validator and transaction primitives are readiness components, but independent public-key enrollment and privileged operator identity must be deliberately configured in a later separately authorized step. Neither premium entitlements nor historical paid records have been touched by this task.
+The draft code is **not a live secure admin UI**. The signed approval validator and transaction primitives are readiness components, but the private key remains local and a later separately authorized, privileged operator process is still required. Neither premium entitlements nor historical paid records have been touched by this task.
 
 ## Streamlined staging claim, 2026-10-16
 
