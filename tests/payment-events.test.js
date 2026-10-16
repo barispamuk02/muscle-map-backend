@@ -74,7 +74,14 @@ function fakeDependencies() {
             const old = users.get(user);
             if (old && new Date(old) <= when) pending.push([user, new Date(0).toISOString()]);
         },
-        getUserByDodoCustomer: async customer => customer === 'cus_known' ? { id: 'u_known' } : null
+        getUserByDodoCustomer: async customer => customer === 'cus_known' ? { id: 'u_known' } : null,
+        resolveDodoBillingRecipient: async (metadataId,customerId) => {
+            if(metadataId && customerId==='cus_known' && metadataId!=='u_known')
+                throw Error('Dodo customer and checkout account mismatch');
+            const resolved=metadataId || (customerId==='cus_known'?'u_known':null);
+            if(!resolved)throw Error('Paid event cannot be matched to a user; retry required');
+            return resolved;
+        }
     };
     return { deps, users, applied };
 }
@@ -153,4 +160,32 @@ test('payment ledger failure keeps entire webhook unacknowledged and retryable',
     deps.recordSuccessfulPayment = async () => { throw Error('ledger unavailable'); };
     await assert.rejects(() => processDodoEvent({type:'payment.succeeded',data:{metadata:{user_id:'u_retry_ledger'},payment_id:'pay_retry_ledger',...paidPeriod()}},'evt_failed_ledger',deps,now), /ledger unavailable/);
     assert.equal(applied.size,0);
+});
+
+test('refund and dispute notices require durable recordkeeping and never revoke Premium',async()=>{
+    const {deps,users,applied}=fakeDependencies();
+    users.set('u_known','2026-11-15T00:00:00.000Z');
+    const saved=[];
+    deps.recordPaymentRiskEvent=async ({eventId,eventType,data})=>{
+        saved.push({eventId,eventType,paymentId:data.payment_id});
+        return {action:'payment_risk_review_pending',paymentMatched:false};
+    };
+    const events=[
+        {type:'refund.succeeded',data:{refund_id:'rfnd_ci_001',payment_id:'pay_ci_001'}},
+        {type:'dispute.lost',data:{dispute_id:'dsp_ci_001',payment_id:'pay_ci_001'}},
+        {type:'dispute.opened',data:{dispute_id:'dsp_ci_001',payment_id:'pay_ci_001'}}
+    ];
+    for(const [i,event] of events.entries()){
+        const r=await processDodoEvent(event,'evt_risk_'+i,deps,now);
+        assert.equal(r.result.action,'payment_risk_review_pending');
+    }
+    assert.equal(saved.length,3);
+    assert.equal(applied.size,3);
+    assert.equal(users.get('u_known'),'2026-11-15T00:00:00.000Z');
+    delete deps.recordPaymentRiskEvent;
+    await assert.rejects(
+        processDodoEvent(events[0],'evt_risk_no_recorder',deps,now),
+        /durable recorder required/
+    );
+    assert.equal(applied.size,3);
 });
