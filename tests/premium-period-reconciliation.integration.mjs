@@ -12,7 +12,7 @@ const legacyUserId='u_ci_reconcile_november_01';
 const customerId='cus_ci_reconcile_one_12345678';
 const oldExpiry='2026-11-13T04:23:25.043Z';
 const merchantExpiry='2026-11-14T04:23:24.489Z';
-const evidenceReference='dodo-audit:clm_'+'a'.repeat(40);
+const evidenceReference='dodo-audit:clm_'+'e'.repeat(40);
 const claim={issuer,subject,legacyUserId,reviewedBy:'ci-reviewer',
     proofMethod:'dodo_merchant_manually_verified',evidenceReference};
 const proof=async({evidenceReference})=>({
