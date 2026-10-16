@@ -57,6 +57,14 @@ jobs:
           node --check resend-mailer.js
           node --check staging-mail-test.js
           node --check webhook-transaction.js
+      - name: Parse local Windows PowerShell operator workflow without executing
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          $file = (Resolve-Path ./scripts/run-staging-billing-otp.ps1).Path
+          [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { throw "PowerShell operator script has syntax errors" }
       - name: Unit regressions
         run: npm test
       - name: Real PostgreSQL ledger integration
