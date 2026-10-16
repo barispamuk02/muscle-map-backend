@@ -49,6 +49,8 @@ jobs:
           node --check dodo-ownership-audit.js
           node --check billing-email-otp.js
           node --check trusted-dodo-claim-review.js
+          node --check resend-mailer.js
+          node --check staging-mail-test.js
           node --check webhook-transaction.js
       - name: Unit regressions
         run: npm test
@@ -56,3 +58,5 @@ jobs:
         run: node tests/payment-ledger.integration.mjs
       - name: PostgreSQL independent billing-email OTP and Dodo audit
         run: node tests/billing-email-otp.integration.mjs
+      - name: PostgreSQL staging email delivery throttle (mock Resend)
+        run: node tests/staging-mail.integration.mjs
