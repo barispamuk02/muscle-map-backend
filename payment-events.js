@@ -53,6 +53,11 @@ export async function processDodoEvent(event, eventId, dependencies, now = new D
     const data = event.data || event.payload || {};
 
     return dependencies.withWebhookTransaction(eventId, type, async client => {
+        // Dodo reports zero/setup-amount payment-method updates as succeeded.
+        // They must never grant a paid period.
+        if (type === 'payment.succeeded' && data.is_update_payment_method === true) {
+            return { action: 'payment_method_update_ignored' };
+        }
         if (type === 'payment.succeeded' || type === 'subscription.active') {
             const email = data.customer?.email || null;
             const customerId = data.customer?.customer_id || null;
