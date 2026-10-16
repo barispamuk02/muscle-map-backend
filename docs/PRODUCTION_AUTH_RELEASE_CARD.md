@@ -1,5 +1,20 @@
 # Muscle Map — single Production Auth release card (2026-10-16)
 
+## Verified Production identity, read-only release gate (2026-10-16)
+
+**Latest state supersedes older 'Auth disabled', 'email verification not tested' and 'localhost allowed' statements lower in this historical runbook.**
+
+Owner completed actual Managed Neon Production Auth account registration, an email-delivered password-recovery OTP, and successful password sign-in. Their Neon Console screenshot shows the tested account with **EMAIL VERIFIED = true** and **BANNED = false**. Screenshot confirmation is operator-provided evidence; an independent SQL read of the Auth user row is unavailable through connected tool security controls. Do not collect OTP, password, session token or private user identifiers. The email-verification release acceptance for the owner's test identity is **PASSED on displayed evidence**, not merely inferred from provider configuration.
+
+Independent Neon configuration confirms: Production Better Auth on `br-odd-hat-b135xeiq`, `require_email_verification=true`, OTP method, `allow_localhost=false`, trusted origin `https://muscle-map.app`, separate Production issuer/JWKS. No more onboarding, login or recovery loops are necessary.
+
+**Next release-critical dependency:** the existing Production business `public` schema still has only `users`, `payments`, `webhook_events` and `playing_with_neon`; it does **not** yet contain the app's `public.auth_identities`, `public.legacy_account_claims`, or `public.billing_email_challenges` tables from Backend Draft PR #2. The successful Auth login is **not yet linked** to the sole legacy paid account. Staging-only operator migration scripts explicitly forbid Production execution and must not be redirected at Production. Prepare/review separate additive schema and a Production-specific, independently authorized atomic single-account claim path before writing any Production business data. Never link solely from matching email or guessed localStorage ID.
+
+Merchant-confirmed sole live Premium has a later unrefunded $3.99 charge and paid-through **2026-11-14T04:23:24.489Z** in the independently approved STAGING claim. Keep the earlier refunded test charge separate. Protect the legacy Premium during transition; do not delete or claim unrelated two Premium records. No live Dodo write operations.
+
+**Owner authorization required for subsequent live actions:** Production business-schema migration, one signed owner-paid claim, Render environment/deployment, Draft PR merge and final Frontend cutover are separate from the previously authorized Auth-provisioning and owner-controlled OTP test. Backup branch remains reserved and untouched.
+
+
 ## Production localhost restriction verified (2026-10-16)
 
 Neon Production Auth configuration was re-read after the operator turned **Allow Localhost OFF** in the Neon Console: `allow_localhost:false` was independently confirmed. The only trusted production origin remains `https://muscle-map.app`. `require_email_verification:true`, `email_verification_method:otp`; `verify_email_on_sign_up:false` and `verify_email_on_sign_in:false` still appear as separate Neon config fields. Do not mistake those fields for an independently verified actual email OTP flow; a single live mailbox sign-up/verification acceptance is needed before real cutover. Current site, Render Production, historic Premium, Dodo billing and checkpoint were not modified by disabling localhost.
