@@ -40,6 +40,17 @@ export async function initDb() {
         created_at TIMESTAMPTZ DEFAULT NOW(),
         PRIMARY KEY (issuer, subject)
     )`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS legacy_account_claims (
+        legacy_user_id TEXT PRIMARY KEY REFERENCES users(id),
+        issuer TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        dodo_customer_id TEXT NOT NULL,
+        evidence_reference TEXT NOT NULL UNIQUE,
+        proof_method TEXT NOT NULL,
+        reviewed_by TEXT NOT NULL,
+        reviewed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (issuer, subject)
+    )`);
     await pool.query('CREATE INDEX IF NOT EXISTS idx_users_dodo_customer ON users(dodo_customer_id)');
     // A second durable constraint independent of the deterministic payment record ID.
     await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_unique_dodo_id ON payments(dodo_payment_id) WHERE dodo_payment_id IS NOT NULL');
