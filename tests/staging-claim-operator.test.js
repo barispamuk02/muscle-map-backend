@@ -107,6 +107,7 @@ test('preview uses ONLY GET and SELECT, refuses expiry mismatch for apply',async
     assert.equal(status.merchantVerified,true);
     assert.equal(status.verifiedNeonAccount,true);
     assert.equal(status.historicalExpiryMatchesDodo,false);
+    assert.equal(status.correctionInSameApprovedClaim,true);
     assert.equal(status.actualLinkPerformed,false);
     assert.equal(status.freshOtpRequired,true);
     assert.equal(status.independentAdminApprovalRequired,true);
