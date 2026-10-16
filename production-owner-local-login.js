@@ -5,7 +5,7 @@
  */
 import {PRODUCTION_AUTH_ISSUER} from './production-auth-schema-migration.js';
 
-const BASE=PRODUCTION_AUTH_ISSUER.replace('.neonauth.', '.neonauth.')+'/neondb/auth';
+const BASE=PRODUCTION_AUTH_ISSUER+'/neondb/auth';
 const safeCookieNames=new Set([
     'better-auth.session_token',
     '__Secure-better-auth.session_token',
