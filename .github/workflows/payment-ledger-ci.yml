@@ -6,6 +6,9 @@ on:
   pull_request:
     paths:
       - 'db.js'
+      - 'production-auth-schema-migration.js'
+      - 'production-claim-approval.js'
+      - 'production-paid-claim.js'
       - 'server.js'
       - 'payment-events.js'
       - 'tests/**'
@@ -52,6 +55,11 @@ jobs:
           node --check staging-claim-approval.js
           node --check staging-claim-operator.js
           node --check production-auth-rollout-guard.js
+          node --check production-auth-schema-migration.js
+          node --check production-claim-approval.js
+          node --check production-paid-claim.js
+          node --check tests/production-release-gates.test.js
+          node --check tests/production-auth-schema.integration.mjs
           node --check tests/production-auth-rollout-guard.test.js
           node --check staging-operator-local-key.js
           node --check scripts/enroll-staging-operator-key.mjs
@@ -95,6 +103,8 @@ jobs:
           if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Host ("Operator script line " + $_.Extent.StartLineNumber + ": " + $_.Message) }; throw "Staging Premium operator transfer script has syntax errors" }
       - name: Unit regressions
         run: npm test
+      - name: Run additive Production-schema rehearsal on disposable PostgreSQL only
+        run: node tests/production-auth-schema.integration.mjs
       - name: Real PostgreSQL ledger integration
         run: node tests/payment-ledger.integration.mjs
       - name: PostgreSQL verified-claim rollback and audit (synthetic records only)
