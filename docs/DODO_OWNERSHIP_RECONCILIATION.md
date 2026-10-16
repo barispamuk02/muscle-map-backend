@@ -13,10 +13,12 @@
 ## Implemented, not yet wired to an operational backend
 
 - `dodo-ownership-audit.js`: read-only merchant GET helper and strict evidence validator.
-- `billing-email-otp.js`: challenge issuance and redemption against PostgreSQL, including fresh send callback and replay prevention.
+- `billing-email-otp.js`: challenge issuance, redemption **and trusted readback from the consumed PostgreSQL row**, including fresh send callback and replay prevention.
+- `trusted-dodo-claim-review.js`: internal-only composition of a server-read verified Neon account, consumed OTP from PostgreSQL and authenticated Dodo LIVE read; suitable as the strict callback for `linkLegacyPremiumAfterReview`, with no Express route.
+- `legacy-account-claim.js`: rejects an unsupported customer-portal-only claim or a proof lacking the exact consumed OTP audit reference and Dodo paid-through timestamp.
 - `db.js`: challenge table and index, applied by `initDb()` only when the Draft backend is intentionally deployed. No existing production schema was changed.
 - `tests/dodo-ownership-audit.test.js`: Dodo fixture audit validation and malicious/missing evidence cases.
-- `tests/billing-email-otp.integration.mjs`: disposable PostgreSQL 16 integration with a **fake local email delivery callback**, fake Dodo GET responses and synthetic emails. No real Dodo API calls, inbox codes, or user subscriptions are involved.
+- `tests/billing-email-otp.integration.mjs`: disposable PostgreSQL 16 integration with **fake local email delivery**, fake Dodo GET responses, synthetic Neon users and an **actual transactional synthetic legacy claim** after trusted record readback. No real Dodo API calls, inbox codes, or user subscriptions are involved.
 - Backend CI runs both test suites, independently of the existing signed JWT, payment ledger and webhook suites.
 
 ## Remaining integration gates
@@ -25,13 +27,13 @@
 
 **Email sender:** There is no trusted SMTP/API email sender wired to `sendEmail`. Configure one using approved credentials stored outside GitHub; use DKIM/SPF and abuse protection. Run a controlled real inbox trial for incorrect/expired/valid/replayed codes before handling actual claims. The Neon signup verification OTP is a different challenge, and **does not automatically prove a Dodo subscription claim**.
 
-**Application orchestration:** Provide a *privileged internal operator service* which:
+**Application orchestration:** The internal callback composition is coded but not deployed. A *privileged operator workflow* must still be built with authentication, permission gates, mail delivery, and production-safe approval controls. It must:
   - obtains an independently verified Neon JWT/subject, confirmed email, and a merchant-side Dodo customer/payment selection (do not accept payment ID as proof of ownership);
   - fetches authenticated Dodo LIVE payment/subscription, validates product and exact billing period;
   - calls issue challenge with recipient from Dodo, not the user;
-  - reads the **stored consumed** challenge in a trusted transactional context and runs reconciliation;
+  - reads the **stored consumed** challenge in a trusted context and runs reconciliation;
   - reviews the result, authorizes migration and reconciles original `premium_expires` with verified Dodo service period (do not shorten), with separate explicit consent.
-No such operational service or live-admin challenge is deployed yet.
+No such operational service or live-admin challenge is deployed yet. Internal synthetic test success is **not** a real subscriber claim.
 
 **Refunds and disputes:** Define validated refund/chargeback policy before production. This reconciler intentionally refuses any refund/dispute record instead of guessing entitlement rules.
 
@@ -41,3 +43,7 @@ No such operational service or live-admin challenge is deployed yet.
 - https://docs.dodopayments.com/api-reference/payments/get-payments-1
 - https://docs.dodopayments.com/api-reference/subscriptions/get-subscriptions
 - https://docs.dodopayments.com/developer-resources/webhooks/intents/payment
+
+## Automated validation outcome
+
+GitHub Actions backend Draft CI run `38853127990` passed all Node regression and disposable PostgreSQL integration checks, including an exact provider-paid period, no-payment/duplicate regressions, merchant GET-only requests, bad/expired/replayed OTP, per-hour throttling, and an audited **synthetic** Dodo claim. Isolated Auth HTTP E2E run `38853127985` also passed. Neither run had real Dodo credentials nor delivered email.
