@@ -48,6 +48,7 @@ jobs:
           node --check legacy-account-claim.js
           node --check dodo-ownership-audit.js
           node --check billing-email-otp.js
+          node --check trusted-dodo-claim-review.js
           node --check webhook-transaction.js
       - name: Unit regressions
         run: npm test
