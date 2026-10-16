@@ -27,11 +27,19 @@ try{
     }
     $env:APP_ENV='staging'
     $env:STAGING_OPERATOR_KEY_ACTION='ENROLL_LOCAL_ONLY'
-    $env:STAGING_OPERATOR_PASSPHRASE=Read-PrivateValue 'Create or enter a long secret passphrase for LOCAL operator key (hidden)'
+    $env:STAGING_OPERATOR_PASSPHRASE=Read-PrivateValue 'Enter LOCAL operator key passphrase (minimum 16 characters, hidden)'
+    if ($env:STAGING_OPERATOR_PASSPHRASE.Length -lt 16) {
+        throw 'LOCAL_OPERATOR_PASSPHRASE_TOO_SHORT_MINIMUM_16'
+    }
     & node .\scripts\enroll-staging-operator-key.mjs
     if($LASTEXITCODE -ne 0){throw 'LOCAL_KEY_ENROLLMENT_FAILED'}
 } catch {
-    Write-Host 'LOCAL_OPERATOR_KEY_PREPARATION_STOPPED' -ForegroundColor Yellow
+    # All published codes are constant strings; never echo a raw tool exception.
+    if ($_.Exception.Message -ceq 'LOCAL_OPERATOR_PASSPHRASE_TOO_SHORT_MINIMUM_16') {
+        Write-Host 'LOCAL_OPERATOR_PASSPHRASE_TOO_SHORT_MINIMUM_16' -ForegroundColor Yellow
+    } else {
+        Write-Host 'LOCAL_OPERATOR_KEY_PREPARATION_STOPPED' -ForegroundColor Yellow
+    }
     exit 1
 } finally {
     foreach($name in @('STAGING_OPERATOR_PASSPHRASE','STAGING_OPERATOR_KEY_ACTION','APP_ENV')){
