@@ -53,6 +53,8 @@ jobs:
           node --check staging-claim-operator.js
           node --check staging-operator-local-key.js
           node --check scripts/enroll-staging-operator-key.mjs
+          node --check scripts/verify-staging-operator-key.mjs
+          node --check scripts/staging-claim-approved-apply.mjs
           node --check tests/staging-operator-local-key.test.js
           node --check scripts/staging-claim-preview.mjs
           node --check tests/staging-claim-operator.test.js
@@ -85,6 +87,10 @@ jobs:
           $file = (Resolve-Path ./scripts/run-staging-operator-enrollment.ps1).Path
           [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$errors) | Out-Null
           if ($errors.Count -gt 0) { throw "Operator enrollment script has syntax errors" }
+          $errors = $null
+          $file = (Resolve-Path ./scripts/run-staging-premium-transfer.ps1).Path
+          [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { throw "Staging Premium operator transfer script has syntax errors" }
       - name: Unit regressions
         run: npm test
       - name: Real PostgreSQL ledger integration
