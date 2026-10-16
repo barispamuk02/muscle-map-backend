@@ -49,6 +49,24 @@ try{
     if($source -match "ENROLLED_PRODUCTION_APPROVER_FINGERPRINT=''"){
         throw 'INDEPENDENT_PRODUCTION_SIGNING_FINGERPRINT_NOT_ENROLLED'
     }
+    # Resolve npm packages BEFORE accepting any Production credentials.
+    # A fresh Git clone contains package-lock.json, not node_modules.
+    # This does not use Neon/Dodo credentials, send mail or change Premium.
+    if(!(Test-Path '.\\package-lock.json')) {
+        throw 'LOCKED_DEPENDENCIES_FILE_MISSING'
+    }
+    $dependenciesReady = & node --input-type=module --eval "Promise.all(['jose','pg','dotenv','express','cors'].map(name => import(name))).catch(() => process.exit(1))"
+    if($LASTEXITCODE -ne 0) {
+        Write-Host 'Required local Node packages are missing. Installing lockfile dependencies BEFORE requesting any secrets...' -ForegroundColor Cyan
+        $npm = Get-Command npm.cmd -ErrorAction SilentlyContinue
+        if(!$npm) { throw 'NPM_NOT_FOUND_INSTALL_NODEJS' }
+        & npm.cmd ci --ignore-scripts --no-audit --no-fund
+        if($LASTEXITCODE -ne 0) { throw 'DEPENDENCY_INSTALL_FAILED_STOP_BEFORE_CREDENTIALS' }
+        & node --input-type=module --eval "Promise.all(['jose','pg','dotenv','express','cors'].map(name => import(name))).catch(() => process.exit(1))"
+        if($LASTEXITCODE -ne 0) { throw 'DEPENDENCIES_STILL_UNAVAILABLE_STOP_BEFORE_CREDENTIALS' }
+    }
+    Write-Host 'LOCAL_BACKEND_DEPENDENCIES_READY=YES' -ForegroundColor Green
+
     $env:APP_ENV='production'
     $env:AUTH_PROVIDER='neon'
     $env:REQUIRE_EMAIL_VERIFICATION='true'
