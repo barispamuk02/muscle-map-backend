@@ -92,6 +92,22 @@ The owner confirmed inspection of Render workspace `My Workspace` (`tea-db28v9fl
 4. Deploy newest Draft code to **STAGING only after separate explicit approval** and verify auth/email/ledger behavior. Do not interpret current staging service as already running this code.
 5. Schedule a controlled Production deployment only after all other release blockers are independently closed and the owner authorizes the exact change.
 
+## Verified Neon Free branch checkpoint and restore drill — 2026-10-16
+
+Owner authorized a **Neon-only zero-upgrade** production checkpoint and an isolated restoration drill. The Neon `free_v3` project has a 10-branch allowance, 6-hour default point-in-time restore window, and lacked snapshots/schedules. Neon-managed paid Snapshots were deliberately **not** enabled.
+
+- **Production source**, unchanged: `production` (`br-odd-hat-b135xeiq`).
+- **Frozen branching checkpoint**: `backup-production-pre-release-20261016` (`br-icy-lake-b17jxntb`), created directly from Production at source LSN `0/28B19A0`, source timestamp **2026-10-16 11:36:11 UTC**. This branch has **no compute** (zero ongoing compute for the checkpoint).
+- **Recovery verification**: `restore-drill-from-prod-backup-20261016` (`br-wispy-moon-b1oz28x1`), created *from the checkpoint*, not the live Production branch. Its parent LSN and timestamp match the checkpoint's branching source; a separate compute was used to query the recovered data, and was manually suspended after the check.
+- **Checks from Production baseline and recovered clone**: 3 users, 3 active Premium, 2 active Premium with recorded Dodo customer, 0 payment ledger rows, 2 webhook event rows and 4 `public` tables. Exact checksums over serialized rows in each of `users`, `payments`, `webhook_events` matched between source and recovered clone. SQL schema diff returned empty. Production was independently rechecked after the branch creation: active entitlements, row counts and data checksums remained unchanged.
+- Both copy branches are separate **non-default branches**. No service/endpoint, user login, Render environment or production Dodo webhook was switched to either one. The copy operation performed **no Production table writes** and did not initiate a payment.
+- Neon API denied explicit custom suspend timeout with `HTTP 412` on the Free plan; the restore branch was created using account defaults instead. The compute was manually requested to suspend once validation finished.
+- Branch allowance: **5 of 10** project branches now used (Production, STAGING, earlier migration rehearsal, checkpoint, recovery drill). These extra branches are subject to Neon Free compute/storage limits; no paid upgrade was requested.
+
+**Limits of this protection:** A Neon child branch is a *copy-on-write checkpoint inside the same project*, not a separate exported offline backup and not an immutable paid Neon Snapshot. It guards against many accidental edits on the production branch but does **not** protect against project deletion, org-level compromise, deletion of the checkpoint, or all upstream platform failures. Production recovery after new subscription charges requires reconciliation of every payment since checkpoint time; overwriting the live database would erase new transactions. Keep the checkpoint untouched. Preserve the recovery-drill branch until the owner approves cleanup.
+
+**Release gate updated:** An independently verified **Neon Free branch checkpoint and restoration from that checkpoint are complete**. A paid snapshot is not mandatory for continuing isolated STAGING QA. Production migration/merge is *still blocked* on the remaining verified auth/payment/legacy subscribers and on choosing an acceptable long-term disaster recovery policy, because branch-only protection is not full off-project backup.
+
 ## Status
 
 **READY**: one independent STAGING paid claim, signer audit, atomic period correction, staging schema, underlying backend and frontend Draft suites.
