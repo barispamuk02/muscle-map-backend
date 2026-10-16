@@ -16,7 +16,7 @@ export async function linkLegacyPremiumAfterReview(input, verifyEvidence, databa
             throw new Error('Missing/invalid signed migration review details');
         }
     }
-    if (!['dodo_portal_owner_confirmed','dodo_merchant_manually_verified'].includes(proofMethod)) {
+    if (!['dodo_merchant_manually_verified'].includes(proofMethod)) {
         throw new Error('Unsupported Dodo ownership review method');
     }
     if (typeof verifyEvidence !== 'function') {
@@ -26,8 +26,12 @@ export async function linkLegacyPremiumAfterReview(input, verifyEvidence, databa
     // No migration is possible without a verified customer identity returned by it.
     const proof = await verifyEvidence({ issuer, subject, legacyUserId, proofMethod, evidenceReference });
     if (!proof || proof.verified !== true ||
+        proof.evidenceReference !== evidenceReference ||
+        !/^dodo-audit:clm_[a-f0-9]{32,100}$/.test(proof.evidenceReference) ||
         typeof proof.dodoCustomerId !== 'string' ||
-        !/^cus_[A-Za-z0-9_-]{5,120}$/.test(proof.dodoCustomerId)) {
+        !/^cus_[A-Za-z0-9_-]{5,120}$/.test(proof.dodoCustomerId) ||
+        typeof proof.paidThrough !== 'string' ||
+        !Number.isFinite(new Date(proof.paidThrough).getTime())) {
         throw new Error('Independent Dodo customer ownership not verified');
     }
 
