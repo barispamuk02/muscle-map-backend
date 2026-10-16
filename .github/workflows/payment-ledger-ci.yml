@@ -46,8 +46,12 @@ jobs:
           node --check payment-events.js
           node --check auth-identity.js
           node --check legacy-account-claim.js
+          node --check dodo-ownership-audit.js
+          node --check billing-email-otp.js
           node --check webhook-transaction.js
       - name: Unit regressions
         run: npm test
       - name: Real PostgreSQL ledger integration
         run: node tests/payment-ledger.integration.mjs
+      - name: PostgreSQL independent billing-email OTP and Dodo audit
+        run: node tests/billing-email-otp.integration.mjs
