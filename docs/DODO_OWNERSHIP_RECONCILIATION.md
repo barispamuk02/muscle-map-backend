@@ -59,3 +59,33 @@ GitHub Actions backend Draft CI run `38853127990` passed all Node regression and
 - PostgreSQL stores the last staging-mail test timestamp, and the sender uses deterministic same-day Resend idempotency. Existing Live Dodo APIs remain inaccessible in staging.
 - Backend mocked Resend + disposable PostgreSQL CI **passed**; frontend desktop/mobile/browser CI **passed**. Staging Render deploy `dep-db8rgn6q1p3s7394shrg` reported `live` with `DB initialized`. Manual delivery to a genuine mailbox is still pending.
 - Release blocker: real Resend API send/delivery + anti-abuse verification, independently reconciled Dodo paid period, separate billing-email OTP proof, authenticated admin-only migration, refund/dispute cases and controlled rollout. No production deploy or historical account transfer.
+
+
+## 2026-10-16: separate read-only Dodo LIVE key and local merchant audit
+
+- The owner created a **new, narrowly restricted** Dodo LIVE key `muscle-map-billing-audit`: `Payments → Read` and `Subscriptions → Read`, 2 of 18 resources; no write, refund or checkout permissions. This is separate from the pre-existing live checkout key.
+- This key is **NOT installed in Render staging**, nor is its secret committed to a repo or attached to a GitHub Action.
+- `scripts/dodo-live-audit.mjs` is an **interactive local-only read tool**. It reads the key from temporary `DODO_AUDIT_API_KEY` in the operator's shell, prompts for exact payment ID and subscription ID without persisting either, makes only two authenticated Dodo LIVE GET requests via `retrieveDodoLiveBilling`, then prints a PII-free merchant summary. All user identifiers, email, card details, metadata, and raw responses stay in local process memory and are not printed or saved.
+- `dodo-merchant-preview.js` performs fail-closed checks: successful USD 399 cents payment, active subscribed product, matching merchant customer IDs and billing emails, a single matching paid `service_periods`, Dodo next billing date, no recorded refunds or disputes. `product_cart` may be null on recurring subscription charges; authoritative product validation is via the retrieved subscription.
+- Any missing/conflicting evidence stops audit with a category code and needs manual review. **A clean merchant result is not evidence that any particular Neon Auth login owns the subscription**.
+- Do not print or share `DODO_AUDIT_API_KEY` or raw JSON. Share only sanitized console output beginning with `DODO_LIVE_MERCHANT_AUDIT_RESULT`; never share full payment/customer/subscription IDs or address.
+
+### Secure Windows PowerShell operator procedure (once CI green)
+
+In a separate clean local checkout of the backend Draft branch, never inside the web frontend, launch:
+
+```powershell
+$secure = Read-Host "Dodo LIVE audit key (hidden input)" -AsSecureString
+$ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+try {
+    $env:DODO_AUDIT_API_KEY = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
+    node .\scripts\dodo-live-audit.mjs
+} finally {
+    Remove-Item Env:\DODO_AUDIT_API_KEY -ErrorAction SilentlyContinue
+    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)
+}
+```
+
+Do not capture terminal output containing prompted IDs; copy only the sanitized result lines. This process does not perform billing mutations, Neon database queries or any user account migration. If Dodo responds with an unexpected schema or a permission error, stop and inspect documentation rather than requesting write access or using the checkout API key.
+
+**Release blockers remain:** independent billing-inbox one-time challenge, verified Neon login, explicit audited claim approval, refund/dispute policy, staging rehearsal with actual authorized owner and production rollback gates. Real account claim has not occurred.
