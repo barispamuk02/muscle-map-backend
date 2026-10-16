@@ -29,17 +29,45 @@ export function verifyDodoSignature(rawBody, headers, secret, nowSeconds = Math.
     }
 }
 
+/**
+ * Return the actual paid-through timestamp from Dodo's successful payment
+ * service_periods, rather than assuming every month has 30 days.
+ * Payment webhook schema: service_periods [{ subscription_id, starts_at, ends_at }].
+ * We currently sell exactly ONE subscription in each checkout.
+ *
+ * On missing, mismatched or ambiguous billing evidence: FAIL CLOSED.
+ * A thrown error rolls back the webhook marker and any charge ledger write.
+ */
 export function resolvePremiumExpiry(data, now = new Date()) {
-    const raw = data?.subscription?.next_billing_date ?? data?.next_billing_date;
-    const maxExpiry = new Date(now);
-    maxExpiry.setFullYear(maxExpiry.getFullYear() + 1);
-    if (raw) {
-        const date = new Date(raw);
-        if (Number.isFinite(date.getTime()) && date > now && date <= maxExpiry) return date;
+    const periods = data?.service_periods;
+    if (!Array.isArray(periods) || periods.length !== 1) {
+        throw new Error('Missing or ambiguous Dodo paid service_periods');
     }
-    const fallback = new Date(now);
-    fallback.setDate(fallback.getDate() + 30);
-    return fallback;
+    const period = periods[0];
+    const ids = data?.subscription_ids;
+    if (!period || typeof period !== 'object' ||
+        typeof period.subscription_id !== 'string' ||
+        !/^sub_[a-zA-Z0-9_-]{5,200}$/.test(period.subscription_id) ||
+        !Array.isArray(ids) || ids.length !== 1 ||
+        ids[0] !== period.subscription_id ||
+        (data.subscription_id && data.subscription_id !== period.subscription_id)) {
+        throw new Error('Dodo payment subscription period mismatch');
+    }
+    const startsAt = period.starts_at;
+    const endsAt = period.ends_at;
+    if (typeof startsAt !== 'string' || typeof endsAt !== 'string' ||
+        !/^\d{4}-\d{2}-\d{2}T/.test(startsAt) || !/^\d{4}-\d{2}-\d{2}T/.test(endsAt)) {
+        throw new Error('Dodo subscription period timestamps missing');
+    }
+    const start = new Date(startsAt), end = new Date(endsAt);
+    const current = new Date(now);
+    const oneYear = 366 * 86400 * 1000;
+    if (![start, end, current].every(d => Number.isFinite(d.getTime())) ||
+        end <= start || end <= current || end.getTime() - start.getTime() > oneYear ||
+        end.getTime() - current.getTime() > oneYear) {
+        throw new Error('Dodo paid service period is invalid or outside supported bounds');
+    }
+    return end;
 }
 
 // Each event and Premium change must be committed in ONE database transaction.
@@ -53,27 +81,36 @@ export async function processDodoEvent(event, eventId, dependencies, now = new D
     const data = event.data || event.payload || {};
 
     return dependencies.withWebhookTransaction(eventId, type, async client => {
-        // Dodo reports zero/setup-amount payment-method updates as succeeded.
-        // They must never grant a paid period.
-        if (type === 'payment.succeeded' && data.is_update_payment_method === true) {
-            return { action: 'payment_method_update_ignored' };
+        // Activity alone is not proof of a successful paid billing period.
+        // Leave it for subscription state/reconciliation; payment.succeeded is
+        // the only event that grants an entitlement here.
+        if (type === 'subscription.active') {
+            return { action:'subscription_state_only', type };
         }
-        if (type === 'payment.succeeded' || type === 'subscription.active') {
+        if (type === 'payment.succeeded') {
+            if (data.is_update_payment_method === true) {
+                return { action: 'payment_method_update_ignored' };
+            }
+            // Dodo sends empty service_periods for one-time and on-demand
+            // charges: those should not create a recurring Premium entitlement.
+            // But a subscription payment with missing periods MUST be retryable.
+            if (Array.isArray(data.subscription_ids) && data.subscription_ids.length === 0 &&
+                Array.isArray(data.service_periods) && data.service_periods.length === 0) {
+                return { action: 'non_subscription_payment_ignored' };
+            }
+
+            // Resolve and validate the period BEFORE any payment ledger write.
+            const expiresAt = resolvePremiumExpiry(data, now);
             const email = data.customer?.email || null;
             const customerId = data.customer?.customer_id || null;
-            let userId = data.metadata?.user_id || data.subscription?.metadata?.user_id || null;
+            let userId = data.metadata?.user_id || null;
             if (!userId && customerId) {
                 const found = await dependencies.getUserByDodoCustomer(customerId, client);
                 userId = found?.id || null;
             }
             if (!userId) throw new Error('Paid event cannot be matched to a user; retry required');
-            // Charge identity, when supplied by Dodo, prevents reactivation by a
-            // second webhook event ID referring to the same successful payment.
-            if (type === 'payment.succeeded') {
-                const isNewPayment = await dependencies.recordSuccessfulPayment(userId, eventId, data, client);
-                if (!isNewPayment) return { action: 'duplicate_payment', userId };
-            }
-            const expiresAt = resolvePremiumExpiry(data, now);
+            const isNewPayment = await dependencies.recordSuccessfulPayment(userId, eventId, data, client);
+            if (!isNewPayment) return { action: 'duplicate_payment', userId };
             await dependencies.setPremium(userId, expiresAt, email, customerId, client);
             return { action: 'premium_activated', userId };
         }
