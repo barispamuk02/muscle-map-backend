@@ -392,6 +392,13 @@ export async function resolveDodoBillingRecipient(
     if(!userId)
         throw Error('Paid event cannot be matched to a user; retry required');
     if(bindPaidSubscription){
+        // Existing legacy checkouts can carry a signed server ID that has not
+        // yet received a public.users row. Create only an empty placeholder
+        // inside this same verified payment transaction (rollback on failure).
+        await db.query(
+            'INSERT INTO users (id) VALUES ($1) ON CONFLICT (id) DO NOTHING',
+            [userId]
+        );
         await db.query(
             `INSERT INTO billing_subscription_owners
                 (subscription_id,user_id,dodo_customer_id)
