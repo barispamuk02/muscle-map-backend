@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {tmpdir} from 'node:os';
+import {spawnSync} from 'node:child_process';
 import {mkdtemp,readFile,rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {enrollLocalStagingOperatorKey,signLocalStagingClaim} from '../staging-operator-local-key.js';
@@ -11,6 +12,20 @@ test('local operator key is encrypted and can authorize the exact staging claim'
     const path=join(folder,'encrypted.pem');
     const passphrase='ci-only-test-passphrase-never-real';
     try{
+        await assert.rejects(
+            enrollLocalStagingOperatorKey({passphrase:'too-short',keyPath:path}),
+            /LOCAL_OPERATOR_PASSPHRASE_INVALID/
+        );
+        const short=spawnSync(process.execPath,['scripts/enroll-staging-operator-key.mjs'],{
+            encoding:'utf8',env:{
+                ...process.env,APP_ENV:'staging',
+                STAGING_OPERATOR_KEY_ACTION:'ENROLL_LOCAL_ONLY',
+                STAGING_OPERATOR_PASSPHRASE:'too-short'
+            }
+        });
+        assert.notEqual(short.status,0);
+        assert.match(short.stderr,
+            /LOCAL_OPERATOR_KEY_FAILURE=LOCAL_OPERATOR_PASSPHRASE_INVALID/);
         const first=await enrollLocalStagingOperatorKey({passphrase,keyPath:path});
         assert.equal(first.created,true);
         assert.match(first.publicKeyFingerprint,/^[a-f0-9]{64}$/);
