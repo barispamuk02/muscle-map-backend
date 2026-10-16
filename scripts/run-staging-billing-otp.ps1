@@ -23,7 +23,8 @@ function Read-PrivateValue([string] $prompt) {
 
 $temporaryNames = @(
     'DATABASE_URL','DODO_AUDIT_API_KEY','RESEND_API_KEY','OTP_HMAC_SECRET',
-    'AUTH_ISSUER','APP_ENV','STAGING_CHALLENGE_ID','STAGING_OTP_CODE'
+    'AUTH_ISSUER','APP_ENV','STAGING_CHALLENGE_ID','STAGING_OTP_CODE',
+    'STAGING_PAYMENT_ID','STAGING_SUBSCRIPTION_ID'
 )
 $secretBytes = New-Object byte[] 32
 try {
@@ -36,7 +37,7 @@ try {
     }
     $env:APP_ENV = 'staging'
     $env:AUTH_ISSUER = 'https://ep-summer-recipe-b1qi9f29.neonauth.c-5.eu-central-1.aws.neon.tech'
-    Write-Host 'LOCAL STAGING ONLY. Three secret values will be requested and hidden.' -ForegroundColor Cyan
+    Write-Host 'LOCAL STAGING ONLY. Credentials and merchant IDs will be requested with hidden input.' -ForegroundColor Cyan
     $env:DATABASE_URL = Read-PrivateValue 'Neon STAGING DATABASE_URL (hidden)'
     try {
         $parsed = [Uri] $env:DATABASE_URL
@@ -58,7 +59,8 @@ try {
     $env:OTP_HMAC_SECRET = [Convert]::ToBase64String($secretBytes)
 
     Write-Host ''
-    Write-Host 'Next: enter merchant Payment ID and Subscription ID locally.' -ForegroundColor Cyan
+    $env:STAGING_PAYMENT_ID = Read-PrivateValue 'Dodo successful payment ID (pay_..., hidden)'
+    $env:STAGING_SUBSCRIPTION_ID = Read-PrivateValue 'Dodo active subscription ID (sub_..., hidden)'
     Write-Host 'The script will READ Dodo and Neon before asking you to type SEND.' -ForegroundColor Cyan
     & node .\scripts\dodo-staging-send-otp.mjs
     if ($LASTEXITCODE -ne 0) {
