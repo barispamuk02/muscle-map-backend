@@ -122,6 +122,14 @@ async function execute(){
     console.log('DODO_REAL_PAID_CURRENT_UNREFUNDED=YES');
     console.log('ONE_MATCHING_LEGACY_PREMIUM=YES');
 
+    // Ask for payment-transfer consent only AFTER all read-only Auth, merchant
+    // and legacy-account checks pass. Never force another approval if preflight fails.
+    checkpoint='OWNER_EXPLICIT_WRITE_CONFIRMATION';
+    console.log('READ_ONLY_OWNER_AND_DODO_PRECHECKS_PASSED=YES');
+    const consent=(await rl.question('Authorize ONE paid Premium transfer? Type CLAIM ONE PAID PREMIUM: ')).trim();
+    if(consent!=='CLAIM ONE PAID PREMIUM')
+        throw Error('PRODUCTION_OWNER_DECLINED_OR_INPUT_INVALID');
+
     // This is the FIRST authorized business write. It creates ONLY an empty
     // placeholder, never an email-based paid entitlement.
     checkpoint='CREATE_EMPTY_AUTH_PLACEHOLDER';
