@@ -2,7 +2,7 @@
  * Production opt-in guard for the final authenticated Premium cutover.
  *
  * This deliberately does NOTHING to today's legacy production deployment
- * unless APP_ENV=production AND PREMIUM_AUTH_REQUIRED=true. When operators
+ * unless PREMIUM_AUTH_REQUIRED=true on a non-staging service. When operators
  * opt into that irreversible-looking mode, all provider/database targets
  * must be explicitly pinned to production and email verification enforced.
  *
@@ -21,11 +21,14 @@ function strictHttps(value) {
     if(u.protocol!=='https:'||u.username||u.password||u.hash||u.search)return null;
     return u;
 }
-function postgresHost(value) {
+function postgresTarget(value) {
     try{
         const u=new URL(value);
         if(!['postgres:','postgresql:'].includes(u.protocol))return null;
-        return u.hostname.toLowerCase();
+        return {
+            host:u.hostname.toLowerCase(),
+            sslMode:u.searchParams.get('sslmode')
+        };
     }catch{return null;}
 }
 function reject() {throw Error('PRODUCTION_AUTH_CUTOVER_CONFIGURATION_REJECTED');}
@@ -35,14 +38,17 @@ function reject() {throw Error('PRODUCTION_AUTH_CUTOVER_CONFIGURATION_REJECTED')
  * protection, NOT a statement that legacy Dodo subscribers have migrated.
  */
 export function assertProductionAuthCutoverConfiguration(env=process.env){
-    if(env.APP_ENV!=='production'||env.PREMIUM_AUTH_REQUIRED!=='true'){
+    if(env.PREMIUM_AUTH_REQUIRED!=='true'||env.APP_ENV==='staging'){
         return Object.freeze({cutoverEnabled:false});
     }
+    // An omitted APP_ENV must not silently bypass the production guard.
+    if(env.APP_ENV!=='production')reject();
     const issuer=strictHttps(env.AUTH_ISSUER);
     const pinnedIssuer=strictHttps(env.PRODUCTION_AUTH_ISSUER);
     const jwks=strictHttps(env.AUTH_JWKS_URL);
     const pinnedJwks=strictHttps(env.PRODUCTION_AUTH_JWKS_URL);
-    const dbHost=postgresHost(env.DATABASE_URL);
+    const database=postgresTarget(env.DATABASE_URL);
+    const dbHost=database?.host;
     const allowedOrigins=(env.ALLOWED_ORIGINS||'').split(',').map(s=>s.trim());
     if(env.AUTH_PROVIDER!=='neon' ||
        env.REQUIRE_EMAIL_VERIFICATION!=='true' ||
@@ -59,7 +65,8 @@ export function assertProductionAuthCutoverConfiguration(env=process.env){
        jwks.href!==pinnedJwks.href ||
        jwks.origin!==issuer.origin ||
        jwks.pathname!=='/neondb/auth/.well-known/jwks.json' ||
-       !dbHost || STAGING_DB_HOSTS.has(dbHost) ||
+       !dbHost || database.sslMode!=='verify-full' ||
+       STAGING_DB_HOSTS.has(dbHost) ||
        !env.PRODUCTION_DB_HOST ||
        dbHost!==env.PRODUCTION_DB_HOST.toLowerCase() ||
        !dbHost.endsWith('.neon.tech') ||
