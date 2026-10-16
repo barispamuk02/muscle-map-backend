@@ -1,5 +1,11 @@
 # Muscle Map — single Production Auth release card (2026-10-16)
 
+## Production localhost restriction verified (2026-10-16)
+
+Neon Production Auth configuration was re-read after the operator turned **Allow Localhost OFF** in the Neon Console: `allow_localhost:false` was independently confirmed. The only trusted production origin remains `https://muscle-map.app`. `require_email_verification:true`, `email_verification_method:otp`; `verify_email_on_sign_up:false` and `verify_email_on_sign_in:false` still appear as separate Neon config fields. Do not mistake those fields for an independently verified actual email OTP flow; a single live mailbox sign-up/verification acceptance is needed before real cutover. Current site, Render Production, historic Premium, Dodo billing and checkpoint were not modified by disabling localhost.
+
+Frontend Draft PR #11 now contains inactive `release/account-config.production.js` with exact independently provisioned Production Auth endpoint, generated/validated by `scripts/prepare-production-account-config.cjs`. It is **NOT** referenced by the live site's `account.html` and must only replace the Draft STAGING `account-config.js` during the approved coordinated release. Production release flags must remain OFF until the sole paid account is securely claimed on Production.
+
 ## Provisioning completed — 2026-10-16
 
 Owner explicitly approved Production Managed Better Auth provisioning and the sole trusted domain, **not** Production deployment, Premium migration or billing writes.
