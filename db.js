@@ -103,6 +103,10 @@ export async function initDb() {
     )`);
     await pool.query('CREATE INDEX IF NOT EXISTS idx_billing_challenge_identity ON billing_email_challenges(issuer,subject,created_at DESC)');
     await pool.query('CREATE INDEX IF NOT EXISTS idx_users_dodo_customer ON users(dodo_customer_id)');
+    // Prevent concurrent/new webhook deliveries from binding one merchant
+    // customer to two account rows. Existing historical duplicates must be
+    // inspected before any production migration/deploy.
+    await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_unique_dodo_customer ON users(dodo_customer_id) WHERE dodo_customer_id IS NOT NULL');
     // A second durable constraint independent of the deterministic payment record ID.
     await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_unique_dodo_id ON payments(dodo_payment_id) WHERE dodo_payment_id IS NOT NULL');
     if(process.env.APP_ENV==='staging') {
@@ -283,6 +287,52 @@ export async function recordPaymentRiskEvent({eventId,eventType,data},db=pool) {
 export async function expirePremiumIfElapsed(userId, now = new Date(), db = pool) {
     await db.query(`UPDATE users SET premium_expires = $2, updated_at = NOW()
         WHERE id = $1 AND premium_expires <= $3`, [userId, new Date(0), now]);
+}
+
+/**
+ * Resolve a signed merchant webhook's recipient without trusting stale
+ * checkout metadata over the durable Dodo customer mapping. Called ONLY
+ * inside withWebhookTransaction's open SQL transaction.
+ */
+export async function resolveDodoBillingRecipient(metadataUserId,customerId,db=pool) {
+    const validUser=value=>typeof value==='string' &&
+        /^u_[A-Za-z0-9_-]{5,180}$/.test(value);
+    const validCustomer=value=>typeof value==='string' &&
+        /^cus_[A-Za-z0-9_-]{5,180}$/.test(value);
+    if(metadataUserId!=null && !validUser(metadataUserId))
+        throw Error('Dodo webhook metadata user ID malformed');
+    if(customerId!=null && !validCustomer(customerId))
+        throw Error('Dodo webhook merchant customer ID malformed');
+    if(!metadataUserId && !customerId)
+        throw Error('Paid event cannot be matched to a user; retry required');
+    // Locks are ordered consistently across deliveries: customer then user.
+    if(customerId)await db.query(
+        'SELECT pg_advisory_xact_lock(hashtext($1),hashtext($2))',
+        ['dodo-customer',customerId]
+    );
+    if(metadataUserId)await db.query(
+        'SELECT pg_advisory_xact_lock(hashtext($1),hashtext($2))',
+        ['dodo-user',metadataUserId]
+    );
+    const owners=customerId?await db.query(
+        'SELECT id FROM users WHERE dodo_customer_id=$1 LIMIT 2',[customerId]
+    ):{rowCount:0,rows:[]};
+    if(owners.rowCount>1)throw Error('Ambiguous Dodo customer ownership');
+    const boundId=owners.rows[0]?.id??null;
+    if(metadataUserId&&boundId&&metadataUserId!==boundId)
+        throw Error('Dodo customer and checkout account mismatch');
+    if(metadataUserId){
+        const existing=await db.query(
+            'SELECT dodo_customer_id FROM users WHERE id=$1 FOR UPDATE',
+            [metadataUserId]
+        );
+        const prior=existing.rows[0]?.dodo_customer_id??null;
+        if(prior&&customerId&&prior!==customerId)
+            throw Error('Dodo checkout account already belongs to another customer');
+        return metadataUserId;
+    }
+    if(boundId)return boundId;
+    throw Error('Paid event cannot be matched to a user; retry required');
 }
 
 export async function getUserByDodoCustomer(customerId, db = pool) {
