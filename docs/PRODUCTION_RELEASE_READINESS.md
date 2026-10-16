@@ -32,7 +32,7 @@ The managed STAGING tenant currently reports `require_email_verification: true`,
 5. **Premium server enforcement**: Static premium-only functions and downloadable assets remain client-readable even if the new API hides a button. Move truly paid functionality behind authenticated server checks, or explicitly describe it as an unprotected convenience UI. Do not market it as secure Premium access before fixing.
 6. **Deployment/restore strategy**: Choose the actual Render workspace/service, read production environment configuration without disclosing secret values, confirm auto-deploy remains OFF, take an independently verified backup/restore point, and rehearse rollback against an isolated clone. Concurrent new Dodo payments make full database restoration unsafe without reconciliation.
 7. **Browser integration**: Test full real frontend/backend wiring against a dedicated STAGING instance using logged-in JWT and original subscriber after F5, logout/login, a second device, mobile and desktop. Do not set the frontend to production issuer before standalone production Auth is provisioned and tested.
-8. **Production-only configuration gate**: New `production-auth-rollout-guard.js` prevents startup when `APP_ENV=production` and `PREMIUM_AUTH_REQUIRED=true` unless the production Neon Auth issuer, JWKS and DB host are explicitly pinned, email verification required, TLS uncompromised, LIVE Dodo secrets present, correct origin allowed and STAGING identifiers excluded. This guard does **not** prove customer migration and is not permission to enable authenticated-only mode.
+8. **Production-only configuration gate**: New `production-auth-rollout-guard.js` prevents authenticated-only startup whenever `PREMIUM_AUTH_REQUIRED=true` outside isolated STAGING unless `APP_ENV=production` and the production Neon Auth issuer, JWKS and DB host are explicitly pinned, email verification required, TLS uncompromised, LIVE Dodo secrets present, correct origin allowed and STAGING identifiers excluded. This guard does **not** prove customer migration and is not permission to enable authenticated-only mode.
 
 ## Two independently approved release stages
 
@@ -52,11 +52,11 @@ The managed STAGING tenant currently reports `require_email_verification: true`,
 
 ## Production Auth cutover guard (draft-only)
 
-The new guard executes before `initDb()` only when the deployment explicitly opts into production authenticated-only cutover. It rejects:
+The new guard executes before `initDb()` when an operator turns on authenticated-only mode outside isolated STAGING. It refuses a missing or mislabelled `APP_ENV` instead of silently skipping validation. It rejects:
 - Any STAGING issuer or STAGING database hostname.
 - Unpinned production issuer, JWKS or database host, or a mismatched issuer / JWKS host.
 - Invalid HTTPS Neon JWKS configuration.
-- Missing verified email enforcement, missing Dodo LIVE credentials or disabled certificate verification.
+- Missing verified email enforcement, missing Dodo LIVE credentials, disabled certificate verification, or a database connection without `sslmode=verify-full`.
 - STAGING mail-test and database override configuration, missing `https://muscle-map.app` allowed origin, localhost-origin contamination.
 
 No production credentials or customers belong in GitHub Actions test fixtures, the document, chat, or issue comments. Unit tests use only synthetic hosts and fake credentials; CI's PostgreSQL is disposable and independent of real Neon.
