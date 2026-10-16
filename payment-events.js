@@ -139,7 +139,8 @@ export async function processDodoEvent(event, eventId, dependencies, now = new D
             if(typeof dependencies.resolveDodoBillingRecipient!=='function')
                 throw Error('Dodo owner conflict verifier required');
             const userId=await dependencies.resolveDodoBillingRecipient(
-                data.metadata?.user_id??null,customerId,client
+                data.metadata?.user_id??null,customerId,client,
+                data.service_periods[0].subscription_id,true
             );
             const isNewPayment = await dependencies.recordSuccessfulPayment(userId, eventId, data, client);
             if (!isNewPayment) return { action: 'duplicate_payment', userId };
@@ -151,7 +152,8 @@ export async function processDodoEvent(event, eventId, dependencies, now = new D
             if(typeof dependencies.resolveDodoBillingRecipient!=='function')
                 throw Error('Dodo owner conflict verifier required');
             const userId=await dependencies.resolveDodoBillingRecipient(
-                data.metadata?.user_id??null,customerId,client
+                data.metadata?.user_id??null,customerId,client,
+                data.subscription_id??null,false
             );
             await dependencies.expirePremiumIfElapsed(userId, now, client);
             return { action: 'premium_expired', userId };
