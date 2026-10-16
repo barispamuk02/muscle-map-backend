@@ -142,6 +142,8 @@ jobs:
         run: node tests/production-auth-schema.integration.mjs
       - name: Real PostgreSQL ledger integration
         run: node tests/payment-ledger.integration.mjs
+      - name: PostgreSQL new Neon customer paid Premium, no legacy transfer (synthetic)
+        run: node tests/new-neon-buyer-premium.integration.mjs
       - name: PostgreSQL verified-claim rollback and audit (synthetic records only)
         run: node tests/legacy-claim-rollback.integration.mjs
       - name: PostgreSQL one-step paid period reconciliation (synthetic only)
