@@ -9,6 +9,10 @@ on:
       - 'production-auth-schema-migration.js'
       - 'production-claim-approval.js'
       - 'production-paid-claim.js'
+      - 'production-owner-bootstrap.js'
+      - 'production-owner-local-login.js'
+      - 'scripts/production-owner-operator.mjs'
+      - 'scripts/run-production-owner-operator.ps1'
       - 'server.js'
       - 'payment-events.js'
       - 'tests/**'
@@ -58,6 +62,10 @@ jobs:
           node --check production-auth-schema-migration.js
           node --check production-claim-approval.js
           node --check production-paid-claim.js
+          node --check production-owner-bootstrap.js
+          node --check production-owner-local-login.js
+          node --check scripts/production-owner-operator.mjs
+          node --check tests/production-owner-bootstrap.test.js
           node --check tests/production-release-gates.test.js
           node --check tests/production-auth-schema.integration.mjs
           node --check tests/production-auth-rollout-guard.test.js
@@ -101,6 +109,12 @@ jobs:
           $file = (Resolve-Path ./scripts/run-staging-premium-transfer.ps1).Path
           [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$errors) | Out-Null
           if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Host ("Operator script line " + $_.Extent.StartLineNumber + ": " + $_.Message) }; throw "Staging Premium operator transfer script has syntax errors" }
+      - name: The Production operator PowerShell helper must parse (no execution)
+        shell: pwsh
+        run: |
+          $tokens=$null; $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path './scripts/run-production-owner-operator.ps1').Path, [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { throw 'Production operator PowerShell syntax invalid' }
       - name: Unit regressions
         run: npm test
       - name: Run additive Production-schema rehearsal on disposable PostgreSQL only
