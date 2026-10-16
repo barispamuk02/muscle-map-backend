@@ -93,7 +93,45 @@ try{
     $env:STAGING_CHALLENGE_ID=$challengeLine.Substring('LOCAL_CHALLENGE_ID='.Length)
     Write-Host 'OTP_SENT_TO_VERIFIED_BILLING_MAILBOX=YES' -ForegroundColor Cyan
     Write-Host 'Enter the NEWEST six-digit code within 10 minutes.' -ForegroundColor Cyan
-    $env:STAGING_OTP_CODE=Read-PrivateValue 'Fresh six-digit billing OTP (hidden)'
+    $otpStart=Get-Date
+    $formatValid=$false
+    for($attempt=1;$attempt -le 4;$attempt++){
+        if(((Get-Date)-$otpStart).TotalMinutes -ge 9){
+            throw 'BILLING_OTP_INPUT_TIME_WINDOW_EXPIRED'
+        }
+        $entered=Read-PrivateValue 'Fresh six-digit billing OTP (hidden)'
+        $entered=$entered.Trim()
+        if($entered -cmatch '^[0-9]{6}
+
+    # Direct local owner intent gate, after independently confirmed mailbox.
+    $decision=(Read-Host 'Transfer this ONE paid Premium only in isolated Neon STAGING? Type APPLY STAGING').Trim()
+    if($decision -cne 'APPLY STAGING'){
+        Write-Host 'OPERATOR_STOPPED_AFTER_OTP_NO_PREMIUM_CHANGE'
+        return
+    }
+    $env:STAGING_LOCAL_OWNER_CONFIRM='TRANSFER_ONE_PAID_PREMIUM_TO_STAGING'
+    $env:STAGING_OPERATOR_ACTION='APPROVE_STAGING_CLAIM'
+    & node .\scripts\staging-claim-approved-apply.mjs
+    if($LASTEXITCODE -ne 0){throw 'STAGING_APPLY_NOT_VERIFIED_STOP_NO_RETRY'}
+    Write-Host 'STAGING_TRANSFER_SESSION_FINISHED' -ForegroundColor Green
+}catch{
+    # Do not echo raw exceptions from child processes, connections or crypto.
+    Write-Host 'STAGING_OPERATOR_SESSION_STOPPED. Inspect sanitized preceding status.' -ForegroundColor Yellow
+    exit 1
+}finally{
+    foreach($name in $names){
+        Remove-Item -Path ('Env:'+$name) -ErrorAction SilentlyContinue
+    }
+    [Array]::Clear($random,0,$random.Length)
+}
+){
+            $env:STAGING_OTP_CODE=$entered
+            $formatValid=$true
+            break
+        }
+        Write-Host 'OTP_FORMAT_INVALID_ENTER_EXACTLY_6_DIGITS_NO_EMAIL_RESENT' -ForegroundColor Yellow
+    }
+    if(!$formatValid){throw 'BILLING_OTP_LOCAL_INPUT_RETRIES_EXHAUSTED'}
     & node .\scripts\dodo-staging-confirm-otp.mjs
     if($LASTEXITCODE -ne 0){throw 'BILLING_OTP_CONFIRM_FAILED'}
     Remove-Item Env:STAGING_OTP_CODE -ErrorAction SilentlyContinue
