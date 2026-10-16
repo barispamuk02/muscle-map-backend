@@ -9,11 +9,10 @@ try {
     console.log('STAGING_PREMIUM_OPERATOR_PREVIEW=PASSED_READ_ONLY');
     console.log('MERCHANT_VERIFIED=YES');
     console.log('NEON_VERIFIED_LOGIN_AND_LEGACY_CUSTOMER_MATCH=YES');
-    console.log('LEGACY_EXPIRY_MATCHES_MERCHANT='+(
-        p.historicalExpiryMatchesDodo?'YES':(
-            p.correctionInSameApprovedClaim?'NO_ATOMIC_CORRECTION_AVAILABLE':'NO_CONFLICT_REQUIRES_REVIEW'
-        )
-    ));
+    console.log('LEGACY_EXPIRY_MATCHES_MERCHANT='+
+        (p.historicalExpiryMatchesDodo?'YES':'NO'));
+    console.log('EXPIRY_CORRECTION_IN_SAME_APPROVED_CLAIM='+
+        (p.correctionInSameApprovedClaim?'YES':'NO'));
     console.log('FRESH_BILLING_OTP=REQUIRED_BEFORE_FUTURE_APPLY');
     console.log('OPERATOR_PUBLIC_FINGERPRINT_ENROLLED='+(
         ENROLLED_OPERATOR_ED25519_FINGERPRINT?'YES':'NO'
