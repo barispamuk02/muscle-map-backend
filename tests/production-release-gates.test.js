@@ -167,8 +167,8 @@ test('Refund, failed payment, wrong subscription, чужой customer fail close
         assert.equal(d.sqls.length,0,'fail merchant check before any account lookup');
     }
 });
-test('No Production claim executes before separate PINNED Production operator enrollment',async()=>{
-    assert.equal(ENROLLED_PRODUCTION_APPROVER_FINGERPRINT,'');
+test('Pinned owner public Production key does not authorize any claim without owner action',async()=>{
+    assert.equal(ENROLLED_PRODUCTION_APPROVER_FINGERPRINT,'1c6bd3d740d19d9d7ac4f82881c7e8bd282e1cdbd2e4664bf3ef72459e6d09aa');
     const d=dbPreview();
     await assert.rejects(applyApprovedProductionPaidClaim({
         env,db:d,http:pretendFetch(merchant()).http
