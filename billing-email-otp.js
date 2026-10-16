@@ -58,7 +58,7 @@ export async function issueBillingEmailChallenge({
             [id,issuer,subject,customerId,recipient,hash,now,until]
         );
         // Never return plaintext OTP from this function.
-        await sendEmail({to:recipient,code:otp,expiresAt:until});
+        await sendEmail({to:recipient,code:otp,expiresAt:until,challengeId:id});
         await dbh.query('UPDATE billing_email_challenges SET sent_at=$2 WHERE id=$1',[id,now]);
         await dbh.query('COMMIT');begun=false;
         return {challengeId:id,expiresAt:until.toISOString()};
