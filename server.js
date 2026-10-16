@@ -9,12 +9,15 @@ import {
     getUserByDodoCustomer,
     recordSuccessfulPayment,
     withWebhookTransaction,
-    getAccountUserId
+    getAccountUserId,
+    isVerifiedNeonAuthSubject
 } from './db.js';
 import { verifyDodoSignature, processDodoEvent } from './payment-events.js';
 import { authenticateBearer, AuthenticationError, isAuthConfigured } from './auth-identity.js';
 
 const app = express();
+const stagingOnly = process.env.APP_ENV === 'staging';
+const requireEmailVerification = process.env.REQUIRE_EMAIL_VERIFICATION === 'true';
 const PORT = process.env.PORT || 3000;
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
     .split(',').map(origin => origin.trim()).filter(Boolean);
@@ -41,7 +44,7 @@ const requireAuth = process.env.PREMIUM_AUTH_REQUIRED === 'true';
 function writeAuthError(res, error) {
     if (error instanceof AuthenticationError) {
         return res.status(error.statusCode).json({
-            error: error.statusCode === 503 ? 'auth unavailable' : 'unauthorized'
+            error: error.statusCode === 503 ? 'auth unavailable' : (error.statusCode === 403 ? 'email verification required' : 'unauthorized')
         });
     }
     console.error('Authenticated API error:', error);
@@ -50,6 +53,14 @@ function writeAuthError(res, error) {
 
 async function getVerifiedAccountId(req) {
     const identity = await authenticateBearer(req.headers.authorization);
+    if (requireEmailVerification) {
+        if (process.env.AUTH_PROVIDER !== 'neon') {
+            throw new AuthenticationError('Verified-email gate requires managed Neon Auth', 503);
+        }
+        if (!await isVerifiedNeonAuthSubject(identity.subject)) {
+            throw new AuthenticationError('Email address must be verified', 403);
+        }
+    }
     return getAccountUserId(identity);
 }
 
@@ -64,6 +75,7 @@ app.get('/api/v2/me/premium', async (req, res) => {
 });
 
 app.get('/api/premium/:userId', async (req, res) => {
+    if (stagingOnly) return res.status(404).json({ error: 'not available in staging' });
     if (requireAuth) return res.status(403).json({ error: 'verified account required' });
     try {
         res.set('Cache-Control', 'no-store');
@@ -78,6 +90,7 @@ app.get('/api/premium/:userId', async (req, res) => {
 // Both checkout routes share exactly the same Dodo request. The protected route
 // receives its account ID from the verified token, never the request body.
 async function createDodoCheckout(userId, email = undefined) {
+    if (stagingOnly) return { status: 503, error: 'checkout disabled in staging' };
     if (!process.env.DODO_API_KEY) {
         console.error('Dodo API key not configured');
         return { status: 503, error: 'checkout unavailable' };
@@ -143,6 +156,7 @@ app.post('/api/checkout', async (req, res) => {
 });
 
 app.post('/api/webhook/dodo', async (req, res) => {
+    if (stagingOnly) return res.status(404).json({ error: 'webhook disabled in staging' });
     try {
         if (!verifyDodoSignature(req.body, req.headers, process.env.DODO_WEBHOOK_SECRET)) {
             return res.status(401).json({ error: 'invalid signature' });
@@ -171,7 +185,13 @@ app.post('/api/webhook/dodo', async (req, res) => {
 
 (async () => {
     try {
-        if (requireAuth && !isAuthConfigured()) {
+        if (stagingOnly && (process.env.DODO_API_KEY || process.env.DODO_WEBHOOK_SECRET)) {
+            throw new Error('Staging must not receive live Dodo secrets');
+        }
+        if (stagingOnly && (!requireAuth || !requireEmailVerification)) {
+            throw new Error('Staging requires PREMIUM_AUTH_REQUIRED and REQUIRE_EMAIL_VERIFICATION');
+        }
+        if ((requireAuth || stagingOnly) && !isAuthConfigured()) {
             throw new Error('PREMIUM_AUTH_REQUIRED needs configured issuer, audience and JWKS');
         }
         await initDb();
