@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import pg from 'pg';
 import { initDb, getPremiumStatus, recordSuccessfulPayment, setPremium, withWebhookTransaction, expirePremiumIfElapsed, getUserByDodoCustomer, getAccountUserId } from '../db.js';
 import { processDodoEvent } from '../payment-events.js';
+import { linkLegacyPremiumAfterReview } from '../legacy-account-claim.js';
 
 if (!process.env.DATABASE_URL?.includes('muscle_map_ci')) {
     throw new Error('Integration tests must use the isolated muscle_map_ci database');
@@ -122,6 +123,44 @@ try {
     assert.equal((await getPremiumStatus(uid)).premium,true);
     console.log('VERIFIED_ACCOUNT_BINDING_ISOLATED_AND_IDEMPOTENT_OK');
 
+    // Reviewed migration reuses the legacy subscriber row, never reassigning
+    // its Premium expiry or allowing knowledge of an old user ID alone.
+    const claimIssuer = 'https://ep-ci-neonauth.example';
+    const oldId = 'u_ci_claim_legacy';
+    const oldExpiry = '2026-11-28T00:00:00Z';
+    const dodoId = 'cus_ci_verified_42';
+    await setPremium(oldId, oldExpiry, null, dodoId);
+    await getAccountUserId({issuer:claimIssuer,subject:'verified_ci_1'});
+    const claim = {
+        issuer:claimIssuer,subject:'verified_ci_1',legacyUserId:oldId,
+        reviewedBy:'ci-reviewer',proofMethod:'dodo_merchant_manually_verified',
+        evidenceReference:'ci-proof-ticket-001'
+    };
+    await assert.rejects(
+        linkLegacyPremiumAfterReview(claim, async () => ({verified:true,dodoCustomerId:'cus_wrong_customer'})),
+        /does not match verified Dodo customer/
+    );
+    await assert.rejects(
+        linkLegacyPremiumAfterReview(claim, async () => ({verified:false,dodoCustomerId:dodoId})),
+        /not verified/
+    );
+    const confirmDodo = async () => ({verified:true,dodoCustomerId:dodoId});
+    const linked = await linkLegacyPremiumAfterReview(claim, confirmDodo);
+    assert.deepEqual(linked,{userId:oldId,alreadyLinked:false});
+    assert.equal(await getAccountUserId({issuer:claimIssuer,subject:'verified_ci_1'}),oldId);
+    assert.equal((await getPremiumStatus(oldId)).expiresAt,'2026-11-28T00:00:00.000Z');
+    assert.equal(Number((await reader.query(
+        'SELECT COUNT(*) AS c FROM legacy_account_claims WHERE legacy_user_id=$1',[oldId]
+    )).rows[0].c),1);
+    assert.equal((await linkLegacyPremiumAfterReview(claim,confirmDodo)).alreadyLinked,true);
+    await getAccountUserId({issuer:claimIssuer,subject:'verified_ci_2'});
+    await assert.rejects(
+        linkLegacyPremiumAfterReview({...claim,subject:'verified_ci_2',evidenceReference:'ci-proof-ticket-002'},confirmDodo),
+        /already claimed/
+    );
+    assert.equal(await getAccountUserId({issuer:claimIssuer,subject:'verified_ci_1'}),oldId);
+    console.log('VERIFIED_DODO_LEGACY_CLAIM_IDEMPOTENT_AND_NON_TRANSFERABLE_OK');
+    
     console.log('REAL_POSTGRES_PAYMENT_LEDGER_ALL_OK');
 } finally {
     await reader.end();
