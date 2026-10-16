@@ -1,5 +1,28 @@
 # Issue #10: Production identity schema and single paid Premium claim
 
+## Applied Production business-schema migration: VERIFIED (2026-10-16)
+
+**This section supersedes the earlier "prepared only" schema status below.** The user explicitly authorized ONLY additive Production public-schema DDL on Neon project `sparkling-sun-97014945`, branch `br-odd-hat-b135xeiq`, and expressly prohibited paid-claim changes, Dodo LIVE, Render deploys, backup edits and PR merges.
+
+Execution used `mcp__Neon__run_sql_transaction` on `neondb` with the **exact 15 SQL statements** from `production-auth-schema-migration.js` in this Draft PR: five `CREATE TABLE IF NOT EXISTS`, four `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, and six `CREATE INDEX IF NOT EXISTS` (including unique indexes). The existing `idx_users_dodo_customer` was already present, so `IF NOT EXISTS` preserved it. All statements succeeded atomically; no direct data DML executed. Before execution, Neon branch, database, full schema names and column types, absence of conflicting objects, and unique merchant customer/payment IDs were checked. Both duplicate counts were zero.
+
+**Independent read-back:**
+- All five required new `public` tables exist: `auth_identities`, `legacy_account_claims`, `legacy_account_claim_reversals`, `payment_risk_events`, `billing_email_challenges`.
+- All six expected named indexes exist (including the original nonunique customer lookup index).
+- New tables contain **zero rows** each; paid-user claim and identity-placeholder setup have **not** occurred.
+- Unchanged: 3 legacy `public.users` rows, 3 future-dated active Premium rows, 0 `public.payments` rows, 2 `public.webhook_events` rows. Canonical MD5 snapshots of all rows (sorted by ID, `to_jsonb` projection) match exactly before and after:
+
+| Table | Before and after fingerprint |
+|---|---|
+| `public.users` | `c2d833f49b4818eed67f0796a2f931f4` |
+| `public.payments` | `d751713988987e9331980363e24189ce` |
+| `public.webhook_events` | `f0af18154e7768d8a49257ac62cb7b0d` |
+
+- Preserved backup `backup-production-pre-release-20261016` (`br-icy-lake-b17jxntb`) remains `ready`, unchanged parent LSN `0/28B19A0`. Production Render remains live on `87860a5015d950cf2097fa3d5bd3a897209b6b2c`. Neither Draft PR merged. No Dodo calls made.
+
+**Next authorization boundary:** Initializing the one verified Production Auth account as an unentitled placeholder, fresh independent Dodo billing-email OTP, Production-only operator key enrollment, and atomic claim of exactly one legacy paid subscriber **are not authorized by this migration approval**. Do not run staging-only operator scripts against Production or infer payment ownership by email alone. A subsequent explicit approval must scope each live write and preserve the unrelated legacy Premium records.
+
+
 **Prepared in Backend Draft PR #2. NOT APPROVED TO WRITE PRODUCTION.**
 Date: 2026-10-16. This document supersedes obsolete sections of older release readiness notes.
 
