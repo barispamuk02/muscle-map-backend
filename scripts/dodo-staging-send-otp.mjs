@@ -34,8 +34,12 @@ if(!configIsSafe()) {
     const rl=createInterface({input,output,terminal:Boolean(input.isTTY)});
     try{
         console.log('LOCAL STAGING OTP: Dodo LIVE GET-only. No billing or production changes.');
-        const paymentId=(await rl.question('Dodo LIVE payment ID (pay_...): ')).trim();
-        const subscriptionId=(await rl.question('Dodo LIVE subscription ID (sub_...): ')).trim();
+        // The PowerShell launcher supplies both IDs with hidden prompts.
+        // Manual fallback is retained only for controlled operator diagnosis.
+        const paymentId=(process.env.STAGING_PAYMENT_ID ||
+            await rl.question('Dodo LIVE payment ID (pay_...): ')).trim();
+        const subscriptionId=(process.env.STAGING_SUBSCRIPTION_ID ||
+            await rl.question('Dodo LIVE subscription ID (sub_...): ')).trim();
         const {payment,subscription}=await retrieveDodoLiveBilling({
             paymentId,subscriptionId,apiKey:process.env.DODO_AUDIT_API_KEY
         });
