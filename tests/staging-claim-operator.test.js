@@ -165,7 +165,7 @@ test('Ed25519 approval is bound to independent key, exact identity and one OTP',
         {...payload,reviewedBy:'!!!invalid'}
     ])assert.throws(()=>verifyIndependentStagingApproval({
         approval:makeSigned(bad),publicKeyPem:pem,
-        trustedFingerprint:fingerprint,expected,now:time
+        trustedFingerprint:fingerprint,expected:{...expected,challengeId},now:time
     }),/STAGING_APPROVAL_/);
 });
 
