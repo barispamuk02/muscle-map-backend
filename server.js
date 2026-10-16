@@ -8,9 +8,11 @@ import {
     expirePremiumIfElapsed,
     getUserByDodoCustomer,
     recordSuccessfulPayment,
-    withWebhookTransaction
+    withWebhookTransaction,
+    getAccountUserId
 } from './db.js';
 import { verifyDodoSignature, processDodoEvent } from './payment-events.js';
+import { authenticateBearer, AuthenticationError, isAuthConfigured } from './auth-identity.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -32,7 +34,37 @@ app.get('/health', (_req, res) => {
     res.json({ ok: true, time: new Date().toISOString() });
 });
 
+// Migration switch: leave historical anonymous clients usable during staged rollout.
+// Enable ONLY once the verified sign-in frontend and legacy account migration are ready.
+const requireAuth = process.env.PREMIUM_AUTH_REQUIRED === 'true';
+
+function writeAuthError(res, error) {
+    if (error instanceof AuthenticationError) {
+        return res.status(error.statusCode).json({
+            error: error.statusCode === 503 ? 'auth unavailable' : 'unauthorized'
+        });
+    }
+    console.error('Authenticated API error:', error);
+    return res.status(500).json({ error: 'internal' });
+}
+
+async function getVerifiedAccountId(req) {
+    const identity = await authenticateBearer(req.headers.authorization);
+    return getAccountUserId(identity);
+}
+
+app.get('/api/v2/me/premium', async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+        const userId = await getVerifiedAccountId(req);
+        res.json({ userId, ...(await getPremiumStatus(userId)) });
+    } catch (error) {
+        writeAuthError(res, error);
+    }
+});
+
 app.get('/api/premium/:userId', async (req, res) => {
+    if (requireAuth) return res.status(403).json({ error: 'verified account required' });
     try {
         res.set('Cache-Control', 'no-store');
         const status = await getPremiumStatus(req.params.userId);
@@ -43,7 +75,55 @@ app.get('/api/premium/:userId', async (req, res) => {
     }
 });
 
+// Both checkout routes share exactly the same Dodo request. The protected route
+// receives its account ID from the verified token, never the request body.
+async function createDodoCheckout(userId, email = undefined) {
+    if (!process.env.DODO_API_KEY) {
+        console.error('Dodo API key not configured');
+        return { status: 503, error: 'checkout unavailable' };
+    }
+    const response = await fetch('https://live.dodopayments.com/checkouts', {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${process.env.DODO_API_KEY}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            product_cart: [{ product_id: 'pdt_0Np4y6YIQmNuBOeULNSot', quantity: 1 }],
+            customer: email ? { email } : undefined,
+            metadata: { user_id: userId },
+            return_url: 'https://muscle-map.app/?premium=success'
+        })
+    });
+    if (!response.ok) {
+        console.error('Dodo checkout API rejected:', response.status);
+        return { status: 502, error: 'checkout failed' };
+    }
+    const data = await response.json();
+    const checkoutUrl = data.checkout_url || data.url || data.payment_link;
+    if (typeof checkoutUrl !== 'string' || !checkoutUrl.startsWith('https://')) {
+        return { status: 502, error: 'checkout URL missing' };
+    }
+    return { checkout_url: checkoutUrl };
+}
+
+app.post('/api/v2/me/checkout', async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+        if (req.body && (Object.hasOwn(req.body, 'userId') || Object.hasOwn(req.body, 'email'))) {
+            return res.status(400).json({ error: 'client identity fields not accepted' });
+        }
+        const userId = await getVerifiedAccountId(req);
+        const result = await createDodoCheckout(userId);
+        if (result.error) return res.status(result.status).json({ error: result.error });
+        res.json(result);
+    } catch (error) {
+        writeAuthError(res, error);
+    }
+});
+
 app.post('/api/checkout', async (req, res) => {
+    if (requireAuth) return res.status(403).json({ error: 'verified account required' });
     try {
         const { userId, email } = req.body || {};
         if (typeof userId !== 'string' || !/^u_[a-z0-9_]{8,126}$/.test(userId)) {
@@ -52,34 +132,10 @@ app.post('/api/checkout', async (req, res) => {
         if (email && (typeof email !== 'string' || email.length > 254)) {
             return res.status(400).json({ error: 'invalid email' });
         }
-        if (!process.env.DODO_API_KEY) {
-            console.error('Dodo API key not configured');
-            return res.status(503).json({ error: 'checkout unavailable' });
-        }
-        const response = await fetch('https://live.dodopayments.com/checkouts', {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${process.env.DODO_API_KEY}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                product_cart: [{ product_id: 'pdt_0Np4y6YIQmNuBOeULNSot', quantity: 1 }],
-                customer: email ? { email } : undefined,
-                metadata: { user_id: userId },
-                return_url: 'https://muscle-map.app/?premium=success'
-            })
-        });
-        const data = await response.json();
-        if (!response.ok) {
-            console.error('Dodo checkout API rejected:', response.status);
-            return res.status(502).json({ error: 'checkout failed' });
-        }
-        const checkoutUrl = data.checkout_url || data.url || data.payment_link;
-        if (typeof checkoutUrl !== 'string' || !checkoutUrl.startsWith('https://')) {
-            return res.status(502).json({ error: 'checkout URL missing' });
-        }
+        const result = await createDodoCheckout(userId, email);
+        if (result.error) return res.status(result.status).json({ error: result.error });
         res.set('Cache-Control', 'no-store');
-        res.json({ checkout_url: checkoutUrl });
+        res.json(result);
     } catch (error) {
         console.error('checkout error:', error);
         res.status(500).json({ error: 'internal' });
@@ -115,6 +171,9 @@ app.post('/api/webhook/dodo', async (req, res) => {
 
 (async () => {
     try {
+        if (requireAuth && !isAuthConfigured()) {
+            throw new Error('PREMIUM_AUTH_REQUIRED needs configured issuer, audience and JWKS');
+        }
         await initDb();
         app.listen(PORT, () => console.log(`🚀 Server on port ${PORT}`));
     } catch (error) {
