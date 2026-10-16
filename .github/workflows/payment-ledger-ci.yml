@@ -9,6 +9,8 @@ on:
       - 'server.js'
       - 'payment-events.js'
       - 'tests/**'
+      - 'package.json'
+      - 'package-lock.json'
       - '.github/workflows/payment-ledger-ci.yml'
 permissions:
   contents: read
@@ -37,8 +39,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Install dependencies
-        run: npm install --no-audit --no-fund
+      - name: Install dependencies with locked versions
+        run: npm ci --no-audit --no-fund
       - name: Validate source syntax
         run: |
           node --check server.js
