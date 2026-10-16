@@ -85,7 +85,7 @@ try {
     // safely de-duplicated by webhook-id across different deliveries.
     await assert.rejects(
         processDodoEvent({
-            type:'payment.succeeded',data:{metadata:{user_id:'u_ci_payment_no_id'},...period(),total_amount:399,currency:'USD'}
+            type:'payment.succeeded',data:{metadata:{user_id:'u_ci_payment_no_id'},...period('2026-11-20T00:00:00Z','2026-10-15T00:00:00Z','sub_ci_missing_payment_id_12345'),total_amount:399,currency:'USD'}
         },'evt_ci_no_payment_id',deps,new Date('2026-10-15T00:00:00Z')),
         /Missing or invalid Dodo payment_id/
     );
