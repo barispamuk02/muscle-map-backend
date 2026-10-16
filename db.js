@@ -1,4 +1,5 @@
 import pg from 'pg';
+import { randomBytes } from 'node:crypto';
 import { runWebhookTransaction } from './webhook-transaction.js';
 const { Pool } = pg;
 
@@ -32,10 +33,65 @@ export async function initDb() {
         event_type TEXT,
         processed_at TIMESTAMPTZ DEFAULT NOW()
     )`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS auth_identities (
+        issuer TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        user_id TEXT NOT NULL UNIQUE REFERENCES users(id),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        PRIMARY KEY (issuer, subject)
+    )`);
     await pool.query('CREATE INDEX IF NOT EXISTS idx_users_dodo_customer ON users(dodo_customer_id)');
     // A second durable constraint independent of the deterministic payment record ID.
     await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_unique_dodo_id ON payments(dodo_payment_id) WHERE dodo_payment_id IS NOT NULL');
     console.log('✅ DB initialized');
+}
+
+
+/**
+ * Create or resolve an account from a CRYPTOGRAPHICALLY VERIFIED provider identity.
+ * This function is never called with localStorage userId. A per-identity transaction
+ * lock ensures concurrent logins do not create orphan users. Legacy Premium accounts
+ * are intentionally NOT silently linked by email or browser-supplied IDs.
+ */
+export async function getAccountUserId({ issuer, subject }) {
+    if (typeof issuer !== 'string' || !issuer || issuer.length > 512 ||
+        typeof subject !== 'string' || !subject || subject.length > 255) {
+        throw new Error('Invalid verified identity');
+    }
+    const client = await pool.connect();
+    let active = false;
+    try {
+        await client.query('BEGIN');
+        active = true;
+        await client.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))', [issuer, subject]);
+        const existing = await client.query(
+            'SELECT user_id FROM auth_identities WHERE issuer = $1 AND subject = $2',
+            [issuer, subject]
+        );
+        if (existing.rows.length) {
+            await client.query('COMMIT');
+            active = false;
+            return existing.rows[0].user_id;
+        }
+        const userId = 'u_' + randomBytes(24).toString('hex');
+        await client.query('INSERT INTO users (id) VALUES ($1)', [userId]);
+        await client.query(
+            'INSERT INTO auth_identities (issuer, subject, user_id) VALUES ($1, $2, $3)',
+            [issuer, subject, userId]
+        );
+        await client.query('COMMIT');
+        active = false;
+        return userId;
+    } catch (error) {
+        if (active) {
+            try { await client.query('ROLLBACK'); } catch (rollbackError) {
+                console.error('Identity transaction rollback failed:', rollbackError);
+            }
+        }
+        throw error;
+    } finally {
+        client.release();
+    }
 }
 
 export async function getPremiumStatus(userId) {
@@ -77,6 +133,7 @@ export async function setPremium(userId, expiresAt, email = null, dodoCustomerId
 // A delayed expiry webhook must never revoke a later successful renewal.
 // Payment ledger lives in the same database transaction as entitlement and event marker.
 // Dodo payment IDs de-duplicate distinct webhook deliveries of the same successful charge.
+// Missing charge IDs fail closed rather than using a different event ID as another payment.
 // Amount is stored in Dodo's smallest currency unit (e.g., cents), not card data.
 export async function recordSuccessfulPayment(userId, eventId, data, db = pool) {
     const paymentId = typeof data?.payment_id === 'string' && data.payment_id.trim()
