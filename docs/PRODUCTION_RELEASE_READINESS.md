@@ -61,6 +61,37 @@ The new guard executes before `initDb()` when an operator turns on authenticated
 
 No production credentials or customers belong in GitHub Actions test fixtures, the document, chat, or issue comments. Unit tests use only synthetic hosts and fake credentials; CI's PostgreSQL is disposable and independent of real Neon.
 
+
+## Render and Neon recovery audit — 2026-10-16, My Workspace
+
+The owner confirmed inspection of Render workspace `My Workspace` (`tea-db28v9flot8c73eakmog`). Connected Render service and deployment metadata were inspected **read-only**. No deploy, environment-variable change, restart, snapshot, or production SQL mutation was performed.
+
+| Evidence | LIVE production | Isolated STAGING |
+|---|---|---|
+| Render service | `muscle-map-backend` (`srv-db29eduk1f9s739kr6jg`) | `muscle-map-backend-staging` (`srv-db8ptljl550s73epdii0`) |
+| Render branch | `main` | `fix/issue-10-payment-ledger` |
+| Auto deploy | **OFF** (`autoDeploy=no`, `autoDeployTrigger=off`) | **OFF** |
+| Last LIVE commit | `87860a5015d950cf2097fa3d5bd3a897209b6b2c` | `92b6f5bd7c6da9aa4796954e01535f240d5e64d6` |
+| Last LIVE deploy time (UTC) | 2026-10-15 17:23 | 2026-10-16 05:39 |
+| Render service tier | free | free |
+
+- Production Render dashboard: https://dashboard.render.com/web/srv-db29eduk1f9s739kr6jg
+- STAGING Render dashboard: https://dashboard.render.com/web/srv-db8ptljl550s73epdii0
+- The isolated STAGING Render server is a **real separately deployed instance** (earlier documentation describing it as not provisioned is outdated). Its last deployed commit predates current Draft PR code; **GitHub CI green does not mean Render STAGING has the newest code**.
+- The Render workspace has **no Render-managed PostgreSQL instances**. PostgreSQL lives in the Neon project.
+- Connected Neon project `sparkling-sun-97014945` reports `history_retention_seconds: 21600` (**six hours**). The project returned **zero stored snapshots** and **empty automated snapshot schedules** on both production `br-odd-hat-b135xeiq` and STAGING `br-jolly-sunset-b1pl23nn`. Production branch metadata reports `protected:false`.
+- Existing Neon STAGING branches were created earlier, not verified current, long-lived production backups. They **must not be treated** as a production point-in-time recovery snapshot.
+- Render connector can read deployment/service metadata but does **not** expose a read-only environment-variable listing action. Exact production env var names/values, secret rotation policy and effective PostgreSQL TLS mode remain **unverified**, and must be inspected in the Render dashboard without pasting secrets into logs or chat.
+- A query for recent Render request logs returned no records, so HTTP request success/error rates **could not be inferred** from that source. The latest LIVE deploy metadata shows both services in `live` status, which is not a substitute for independent end-to-end acceptance testing.
+
+### Mandatory safe next operation before any release
+
+1. Create a verified **fresh production backup** with approved secure retention. Choose a Neon snapshot if supported on this project's plan, or a separately encrypted PostgreSQL export to storage not tied to Render's free filesystem. Do not assume that a six-hour PITR retention meets recovery needs.
+2. Verify the backup can be **restored to a new disposable Neon branch or isolated database**. Check row counts, Dodo customer mapping, premium expiries and webhook/payment integrity. Keep new live payments out of overwritten historical snapshots and reconcile them before rollback.
+3. Review Neon Production branch protection and enable it after explicit approval. Verify Render production DB host and HTTPS JWT issuer/JWKS from the service environment without displaying secrets.
+4. Deploy newest Draft code to **STAGING only after separate explicit approval** and verify auth/email/ledger behavior. Do not interpret current staging service as already running this code.
+5. Schedule a controlled Production deployment only after all other release blockers are independently closed and the owner authorizes the exact change.
+
 ## Status
 
 **READY**: one independent STAGING paid claim, signer audit, atomic period correction, staging schema, underlying backend and frontend Draft suites.
