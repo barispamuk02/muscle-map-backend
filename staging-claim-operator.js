@@ -14,9 +14,11 @@ import {linkLegacyPremiumAfterReview} from './legacy-account-claim.js';
 import {assertIsolatedStagingClaimEnvironment,
     verifyIndependentStagingApproval,STAGING_CLAIM_ISSUER} from './staging-claim-approval.js';
 
-// Deliberately NOT enrolled. A public-key fingerprint needs a separate
-// owner-authorized review and source change before real STAGING apply.
-export const ENROLLED_OPERATOR_ED25519_FINGERPRINT = null;
+// Owner-provided PUBLIC SHA-256 fingerprint of a Windows-local encrypted
+// Ed25519 operator key. No private key, passphrase or authentication secret is
+// stored in source. This enrollment alone does not initiate any claim.
+export const ENROLLED_OPERATOR_ED25519_FINGERPRINT =
+    '68dc0b78c07acaa3e3e867744fcfa7f06182852140be02a52fa18dab6a079cac';
 
 function validId(value,prefix) {
     return typeof value==='string' &&
