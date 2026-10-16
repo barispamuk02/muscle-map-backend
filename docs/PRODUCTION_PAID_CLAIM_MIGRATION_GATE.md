@@ -1,5 +1,34 @@
 # Issue #10: Production identity schema and single paid Premium claim
 
+## Production one-owner handoff ready for operator (2026-10-16)
+
+**This is the current action status.** Production business-schema migration has ALREADY COMPLETED and is verified; the single paid Premium claim has NOT been applied. Backend remains Draft and unmerged.
+
+An owner-controlled single-window Production transfer workflow is now implemented and continuously tested in the Draft branch:
+
+- `production-owner-local-login.js`: only existing Neon Better Auth password sign-in and short-lived signed JWT retrieval. No repeat signup or recovery OTP.
+- `production-owner-bootstrap.js` and `scripts/production-owner-operator.mjs`: independently validate a Production JWT, the existing `emailVerified=true`, non-banned Neon Auth row, and exact Production database host; optional **unentitled** identity initialization is blocked without specific approval.
+- `production-operator-local-key.js`, `scripts/enroll-production-operator-key.mjs` and `scripts/run-production-key-enrollment.ps1`: create an **encrypted, distinct Production Ed25519 signing key on the owner's own Windows machine**, print only its **public SHA-256 fingerprint**. Do not copy the STAGING signing key, the private key or the passphrase into chat/GitHub.
+- `scripts/run-production-one-paid-claim.ps1` and `scripts/production-one-owner-paid-claim.mjs`: one explicit owner-approved local session authenticates the existing verified identity, checks Dodo LIVE **GET-only** for the **later successful, nonrefunded** current subscription, verifies billing/identity email match and the unique existing paid legacy row, initializes exactly one unentitled placeholder, sends one independent Dodo billing ownership OTP, consumes it once, signs a scoped single-owner Production approval and atomically links **only that one** historic paid subscriber through existing `linkLegacyPremiumAfterReview()`. It reads back the resulting exact paid period with millisecond precision. None of these scripts is mounted as a public API. Failures stop; never blindly retry.
+- **Intentional fail-closed boundary:** `ENROLLED_PRODUCTION_APPROVER_FINGERPRINT` remains EMPTY in `production-claim-approval.js`. The transfer runner will refuse to launch until the owner has locally generated the distinct encrypted key and its *public fingerprint* has been separately reviewed and pinned in a Draft commit. This is the next genuine owner interaction, not another round of signup or testing. The Production Auth password, Dodo audit key, Resend send-only key, OTP and Neon database credentials remain local/private.
+
+When the owner is ready, in their existing checked-out Backend **Draft** branch `fix/issue-10-payment-ledger` on Windows, after `git fetch origin` and `git pull --ff-only`, run:
+
+```powershell
+powershell -NoProfile -File .\scripts\run-production-key-enrollment.ps1
+```
+
+This creates no Production DB writes or merchant requests. **The only value to share afterward is `PRODUCTION_PUBLIC_KEY_SHA256`** (64 hex characters). Never share the passphrase/private key. Once the public fingerprint is pinned and CI green, the final owner-controlled transfer uses **one terminal run**:
+
+```powershell
+powershell -NoProfile -File .\scripts\run-production-one-paid-claim.ps1
+```
+
+The second script will require a separate explicit terminal approval phrase for **both** unentitled placeholder creation and the one paid claim, plus entry of private credentials locally and the single fresh billing OTP. It does NOT modify Render Production, Dodo subscriptions, unrelated Premium accounts, Neon staging or the backup branch. It cannot run successfully before the owner has authorized the concrete Production paid transfer.
+
+Prior migration counts and row hashes below remain the verified snapshot; no later Production business data changes have been made in this preparation.
+
+
 ## Applied Production business-schema migration: VERIFIED (2026-10-16)
 
 **This section supersedes the earlier "prepared only" schema status below.** The user explicitly authorized ONLY additive Production public-schema DDL on Neon project `sparkling-sun-97014945`, branch `br-odd-hat-b135xeiq`, and expressly prohibited paid-claim changes, Dodo LIVE, Render deploys, backup edits and PR merges.
