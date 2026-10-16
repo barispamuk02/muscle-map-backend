@@ -112,7 +112,7 @@ test('customer lookup, expiration, cancellation work without revoking early', as
 
 test('payment without any identifiable user fails rather than being acknowledged', async () => {
     const { deps, applied } = fakeDependencies();
-    await assert.rejects(() => processDodoEvent({ type: 'payment.succeeded', data: {} }, 'evt_no_user', deps, now), /cannot be matched/);
+    await assert.rejects(() => processDodoEvent({ type: 'payment.succeeded', data: {payment_id:'pay_unknown',...paidPeriod()} }, 'evt_no_user', deps, now), /cannot be matched/);
     assert.equal(applied.size, 0);
 });
 
