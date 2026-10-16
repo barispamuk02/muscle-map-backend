@@ -117,6 +117,23 @@ export async function processDodoEvent(event, eventId, dependencies, now = new D
 
             // Resolve and validate the period BEFORE any payment ledger write.
             const expiresAt = resolvePremiumExpiry(data, now);
+            // A signed "payment.succeeded" does not necessarily mean our
+            // paid USD subscription: zero-amount trials, unrelated products
+            // and other currencies must not unlock Muscle Map Premium.
+            // Tax/discount amounts may differ from $3.99; require a positive
+            // provider amount, not a fragile exact-charge equality.
+            if (!Number.isSafeInteger(data.total_amount) ||
+                data.total_amount <= 0 || data.currency !== 'USD') {
+                throw Error('Dodo Premium requires a positive USD charge');
+            }
+            // Dodo recurring-payment cart can be null. Where product_cart
+            // is populated, it must identify our actual Premium product.
+            if (Array.isArray(data.product_cart) && data.product_cart.length &&
+                !data.product_cart.some(item =>
+                    item?.product_id === 'pdt_0Np4y6YIQmNuBOeULNSot' &&
+                    item.quantity === 1)) {
+                throw Error('Dodo payment product is not Muscle Map Premium');
+            }
             const email = data.customer?.email || null;
             const customerId = data.customer?.customer_id || null;
             if(typeof dependencies.resolveDodoBillingRecipient!=='function')
