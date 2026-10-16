@@ -73,6 +73,7 @@ test('protected HTTP Premium enforces signed identity, verified email and stagin
                 REQUIRE_EMAIL_VERIFICATION:'true',
                 AUTH_PROVIDER:'neon',AUTH_ISSUER:issuer,
                 AUTH_JWKS_URL:jwksUrl,
+                STAGING_DB_HOSTS:'localhost',
                 ALLOWED_ORIGINS:backend,
                 NODE_EXTRA_CA_CERTS:cert,
                 DODO_API_KEY:'',DODO_WEBHOOK_SECRET:''
