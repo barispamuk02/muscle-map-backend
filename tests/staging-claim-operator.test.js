@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {generateKeyPairSync, createHash, sign as signMessage} from 'node:crypto';
+import {spawnSync} from 'node:child_process';
 import {
     assertIsolatedStagingClaimEnvironment,
     verifyIndependentStagingApproval,STAGING_CLAIM_ISSUER
@@ -201,4 +202,22 @@ test('owner public fingerprint enrolled, but APPLY still needs separate operator
     );
     assert.equal(fixture.queries.length,0);
     assert.equal(fixture.httpCalls.length,0);
+});
+
+test('local apply CLI refuses missing explicit owner permission before any network or SQL',()=>{
+    const result=spawnSync(process.execPath,
+        ['scripts/staging-claim-approved-apply.mjs'],{
+            encoding:'utf8',timeout:12000,
+            env:{
+                ...process.env,...env,
+                STAGING_OPERATOR_ACTION:'APPROVE_STAGING_CLAIM',
+                STAGING_LOCAL_OWNER_CONFIRM:'NO',
+                STAGING_CHALLENGE_ID:challengeId,
+                STAGING_OPERATOR_PASSPHRASE:'ci-only-not-a-real-secret'
+            }
+        });
+    assert.notEqual(result.status,0);
+    assert.match(result.stderr,/STAGING_PREMIUM_CLAIM=NEEDS_REVIEW/);
+    assert.match(result.stderr,/STAGING_APPLY_NOT_AUTHORIZED_OR_MISSING_PRIVATE_INPUT/);
+    assert.doesNotMatch(result.stdout,/STAGING_PREMIUM_CLAIM=COMPLETED/);
 });
