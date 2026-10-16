@@ -44,6 +44,7 @@ jobs:
           node --check server.js
           node --check db.js
           node --check payment-events.js
+          node --check auth-identity.js
           node --check webhook-transaction.js
       - name: Unit regressions
         run: npm test
