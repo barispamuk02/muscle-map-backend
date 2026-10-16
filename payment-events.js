@@ -80,7 +80,23 @@ export async function processDodoEvent(event, eventId, dependencies, now = new D
     if (!type || typeof type !== 'string') throw new Error('Missing event type');
     const data = event.data || event.payload || {};
 
+    // Dodo reversal notifications are security-critical billing signals.
+    // Persist immutable evidence for an independently reviewed decision.
+    // A refund/dispute alone cannot identify which newer paid period should
+    // be revoked; do not erase an unrelated successful renewal.
+    const riskEvents=new Set([
+        'refund.succeeded','refund.failed',
+        'dispute.opened','dispute.challenged','dispute.accepted',
+        'dispute.cancelled','dispute.expired','dispute.won','dispute.lost'
+    ]);
     return dependencies.withWebhookTransaction(eventId, type, async client => {
+        if(riskEvents.has(type)){
+            if(typeof dependencies.recordPaymentRiskEvent!=='function')
+                throw Error('Dodo risk-event durable recorder required');
+            return dependencies.recordPaymentRiskEvent({
+                eventId,eventType:type,data
+            },client);
+        }
         // Activity alone is not proof of a successful paid billing period.
         // Leave it for subscription state/reconciliation; payment.succeeded is
         // the only event that grants an entitlement here.
