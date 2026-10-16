@@ -49,7 +49,23 @@ export async function initDb() {
         proof_method TEXT NOT NULL,
         reviewed_by TEXT NOT NULL,
         reviewed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        previous_user_id TEXT REFERENCES users(id),
+        premium_expires_at_claim TIMESTAMPTZ,
         UNIQUE (issuer, subject)
+    )`);
+    // Non-destructive addition for already-existing schemas. Historical claims
+    // without a snapshot cannot be automatically reversed.
+    await pool.query('ALTER TABLE legacy_account_claims ADD COLUMN IF NOT EXISTS previous_user_id TEXT REFERENCES users(id)');
+    await pool.query('ALTER TABLE legacy_account_claims ADD COLUMN IF NOT EXISTS premium_expires_at_claim TIMESTAMPTZ');
+    await pool.query(`CREATE TABLE IF NOT EXISTS legacy_account_claim_reversals (
+        legacy_user_id TEXT PRIMARY KEY REFERENCES legacy_account_claims(legacy_user_id),
+        previous_user_id TEXT NOT NULL UNIQUE REFERENCES users(id),
+        issuer TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        original_evidence_reference TEXT NOT NULL,
+        reviewed_by TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        reversed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`);
     // OTP challenge is bound to a verified auth identity AND Dodo billing customer.
     // Store only a keyed digest, never the plaintext OTP.
