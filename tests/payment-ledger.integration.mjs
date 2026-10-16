@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import pg from 'pg';
-import { initDb, getPremiumStatus, recordSuccessfulPayment, setPremium, withWebhookTransaction, expirePremiumIfElapsed, getUserByDodoCustomer, getAccountUserId } from '../db.js';
+import { initDb, getPremiumStatus, recordSuccessfulPayment, recordPaymentRiskEvent, setPremium, withWebhookTransaction, expirePremiumIfElapsed, getUserByDodoCustomer, getAccountUserId } from '../db.js';
 import { processDodoEvent } from '../payment-events.js';
 import { linkLegacyPremiumAfterReview } from '../legacy-account-claim.js';
 
@@ -9,7 +9,7 @@ if (!process.env.DATABASE_URL?.includes('muscle_map_ci')) {
 }
 const { Pool } = pg;
 const reader = new Pool({ connectionString: process.env.DATABASE_URL, ssl: false, max: 3 });
-const deps = { withWebhookTransaction, recordSuccessfulPayment, setPremium, expirePremiumIfElapsed, getUserByDodoCustomer };
+const deps = { withWebhookTransaction, recordSuccessfulPayment, recordPaymentRiskEvent, setPremium, expirePremiumIfElapsed, getUserByDodoCustomer };
 
 try {
     await initDb();
@@ -209,6 +209,68 @@ try {
     assert.equal(await getAccountUserId({issuer:claimIssuer,subject:'verified_ci_1'}),oldId);
     console.log('VERIFIED_DODO_LEGACY_CLAIM_IDEMPOTENT_AND_NON_TRANSFERABLE_OK');
     
+    // Signed reversal events are NOT harmless unknown webhooks. Capture the
+    // merchant reference even for payments absent from historical ledger.
+    const beforeRiskExpiry=(await getPremiumStatus(uid)).expiresAt;
+    const refunded=await processDodoEvent({
+        type:'refund.succeeded',
+        data:{
+            refund_id:'rfnd_ci_ledger_12345',
+            payment_id:payId,
+            customer:{customer_id:'cus_ci_ledger_12345'},
+            status:'succeeded',is_partial:false
+        }
+    },'evt_ci_refund_succeeded_1',deps,new Date('2026-10-15T00:00:00Z'));
+    assert.equal(refunded.result.action,'payment_risk_review_pending');
+    assert.equal(refunded.result.paymentMatched,true);
+    assert.equal((await getPremiumStatus(uid)).expiresAt,beforeRiskExpiry);
+    const recordedRisk=await reader.query(
+        'SELECT event_type,dodo_payment_id,matched_payment_user_id,review_status '+
+        'FROM payment_risk_events WHERE webhook_id=$1',
+        ['evt_ci_refund_succeeded_1']
+    );
+    assert.equal(recordedRisk.rowCount,1);
+    assert.deepEqual(recordedRisk.rows[0],{
+        event_type:'refund.succeeded',dodo_payment_id:payId,
+        matched_payment_user_id:uid,review_status:'pending'
+    });
+    const duplicateRisk=await processDodoEvent({
+        type:'refund.succeeded',
+        data:{refund_id:'rfnd_ci_ledger_12345',payment_id:payId}
+    },'evt_ci_refund_succeeded_1',deps,new Date('2026-10-15T00:00:00Z'));
+    assert.equal(duplicateRisk.skipped,true);
+    assert.equal(Number((await reader.query(
+        'SELECT COUNT(*)::int AS n FROM payment_risk_events WHERE webhook_id=$1',
+        ['evt_ci_refund_succeeded_1']
+    )).rows[0].n),1);
+
+    const historicalDispute=await processDodoEvent({
+        type:'dispute.lost',
+        data:{dispute_id:'dsp_ci_ledger_unmatched',payment_id:'pay_ci_unmatched_old_charge',
+            customer:{customer_id:'cus_ci_historical_200'},dispute_status:'dispute_lost'}
+    },'evt_ci_dispute_lost_unmatched',deps,new Date('2026-10-15T00:00:00Z'));
+    assert.equal(historicalDispute.result.action,'payment_risk_review_pending');
+    assert.equal(historicalDispute.result.paymentMatched,false);
+    const historicRow=await reader.query(
+        'SELECT review_status,matched_payment_user_id FROM payment_risk_events WHERE webhook_id=$1',
+        ['evt_ci_dispute_lost_unmatched']
+    );
+    assert.equal(historicRow.rows[0].review_status,'pending');
+    assert.equal(historicRow.rows[0].matched_payment_user_id,null);
+    await assert.rejects(
+        processDodoEvent({
+            type:'refund.succeeded',data:{
+                refund_id:'rfnd_ci_missing_payment',status:'succeeded'
+            }
+        },'evt_ci_risk_missing_reference',deps,new Date('2026-10-15T00:00:00Z')),
+        /reversal evidence/
+    );
+    assert.equal(Number((await reader.query(
+        'SELECT COUNT(*)::int AS n FROM webhook_events WHERE id=$1',
+        ['evt_ci_risk_missing_reference']
+    )).rows[0].n),0);
+    console.log('SIGNED_REFUND_DISPUTE_AUDIT_PENDING_REVIEW_AND_NO_ENTITLEMENT_REVOKE_OK');
+
     console.log('REAL_POSTGRES_PAYMENT_LEDGER_ALL_OK');
 } finally {
     await reader.end();
