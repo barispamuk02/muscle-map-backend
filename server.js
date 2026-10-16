@@ -186,6 +186,21 @@ app.post('/api/webhook/dodo', async (req, res) => {
 
 (async () => {
     try {
+        if (stagingOnly) {
+            // Hard-stop if an operator pastes a production Neon URL into staging.
+            // The expected host list contains only the dedicated test branch's
+            // direct/pooled database endpoints, never a credential or full URL.
+            const expectedHosts = (process.env.STAGING_DB_HOSTS || '')
+                .split(',').map(host => host.trim().toLowerCase()).filter(Boolean);
+            let actualDatabase;
+            try { actualDatabase = new URL(process.env.DATABASE_URL); }
+            catch { throw new Error('Staging requires a valid DATABASE_URL'); }
+            if (!['postgresql:', 'postgres:'].includes(actualDatabase.protocol) ||
+                expectedHosts.length === 0 ||
+                !expectedHosts.includes(actualDatabase.hostname.toLowerCase())) {
+                throw new Error('Staging database host mismatch: refusing database initialization');
+            }
+        }
         if (stagingOnly && (process.env.DODO_API_KEY || process.env.DODO_WEBHOOK_SECRET)) {
             throw new Error('Staging must not receive live Dodo secrets');
         }
