@@ -70,6 +70,21 @@ export async function initDb() {
         reason TEXT NOT NULL,
         reversed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`);
+    // Signed Dodo refund/dispute notices must not disappear into an "ignored"
+    // handler. This audit is event-level evidence, not permission to revoke an
+    // independently renewed customer. No secrets, card details or full payloads.
+    await pool.query(`CREATE TABLE IF NOT EXISTS payment_risk_events (
+        webhook_id TEXT PRIMARY KEY REFERENCES webhook_events(id),
+        event_type TEXT NOT NULL,
+        provider_record_id TEXT NOT NULL,
+        dodo_payment_id TEXT NOT NULL,
+        dodo_customer_id TEXT,
+        matched_payment_user_id TEXT REFERENCES users(id),
+        received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        review_status TEXT NOT NULL DEFAULT 'pending'
+            CHECK (review_status IN ('pending','reviewed'))
+    )`);
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_payment_risk_lookup ON payment_risk_events(dodo_payment_id,received_at DESC)');
     // OTP challenge is bound to a verified auth identity AND Dodo billing customer.
     // Store only a keyed digest, never the plaintext OTP.
     await pool.query(`CREATE TABLE IF NOT EXISTS billing_email_challenges (
@@ -227,6 +242,42 @@ export async function recordSuccessfulPayment(userId, eventId, data, db = pool) 
         [recordId, userId, paymentId, amount, currency, 'succeeded']
     );
     return record.rows.length > 0;
+}
+
+/**
+ * Record refund/dispute evidence atomically with the authenticated webhook
+ * transport marker. Never revoke Premium or trust userId from reversal
+ * metadata. A historical payment may not yet exist in the new ledger; keep
+ * an unmatched audit row instead of guessing an account or dropping evidence.
+ */
+export async function recordPaymentRiskEvent({eventId,eventType,data},db=pool) {
+    const validId=value => typeof value==='string' &&
+        /^[A-Za-z0-9_-]{5,200}$/.test(value);
+    const sourceId=eventType.startsWith('refund.')
+        ? data?.refund_id : data?.dispute_id;
+    if(!validId(eventId) || !validId(sourceId) ||
+       !validId(data?.payment_id) ||
+       !/^pay_[A-Za-z0-9_-]{5,190}$/.test(data.payment_id)) {
+        throw Error('Dodo reversal evidence missing verified payment reference');
+    }
+    const customerId=data?.customer?.customer_id;
+    if(customerId!=null && (!validId(customerId) ||
+       !/^cus_[A-Za-z0-9_-]{5,190}$/.test(customerId))) {
+        throw Error('Dodo reversal evidence has invalid customer reference');
+    }
+    const row=await db.query(
+        `INSERT INTO payment_risk_events
+            (webhook_id,event_type,provider_record_id,dodo_payment_id,dodo_customer_id,matched_payment_user_id)
+         SELECT $1,$2,$3,$4,$5,
+                (SELECT p.user_id FROM payments p WHERE p.dodo_payment_id=$4)
+         RETURNING matched_payment_user_id`,
+        [eventId,eventType,sourceId,data.payment_id,customerId??null]
+    );
+    if(row.rowCount!==1)throw Error('Dodo reversal event not recorded');
+    return {
+        action:'payment_risk_review_pending',
+        paymentMatched:row.rows[0].matched_payment_user_id!=null
+    };
 }
 
 export async function expirePremiumIfElapsed(userId, now = new Date(), db = pool) {
