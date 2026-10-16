@@ -44,6 +44,11 @@ async function collectPreview({env,db,http,now}) {
         subscriptionId:env.PRODUCTION_SUBSCRIPTION_ID,
         apiKey:env.DODO_AUDIT_API_KEY,http
     });
+    // A trusted HTTP route is not sufficient: bind returned payload IDs
+    // to the selected operator scope before reading any local customer row.
+    if(payment?.payment_id!==env.PRODUCTION_PAYMENT_ID ||
+       subscription?.subscription_id!==env.PRODUCTION_SUBSCRIPTION_ID)
+        throw Error('PRODUCTION_CLAIM_MERCHANT_REFERENCE_MISMATCH');
     // Requires *both* an already initialized, verified Neon auth identity
     // (in public.auth_identities) and exactly one existing Dodo paid legacy user.
     // Never silently create placeholder rows or bind by email alone.
