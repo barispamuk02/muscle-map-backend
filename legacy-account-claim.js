@@ -10,7 +10,12 @@ import pool from './db.js';
  * Does not change premium_expires or call Dodo APIs.
  */
 export async function linkLegacyPremiumAfterReview(input, verifyEvidence, database = pool) {
-    const { issuer, subject, legacyUserId, reviewedBy, proofMethod, evidenceReference } = input || {};
+    const { issuer, subject, legacyUserId, reviewedBy, proofMethod, evidenceReference, operatorApprovalReference } = input || {};
+    if(operatorApprovalReference !== undefined &&
+       (typeof operatorApprovalReference!=='string' ||
+        !/^ed25519:[a-f0-9]{64}$/.test(operatorApprovalReference))) {
+        throw Error('Invalid cryptographic staging operator approval reference');
+    }
     for (const value of [issuer, subject, legacyUserId, reviewedBy, proofMethod, evidenceReference]) {
         if (typeof value !== 'string' || value.length < 3 || value.length > 512) {
             throw new Error('Missing/invalid signed migration review details');
@@ -84,9 +89,9 @@ export async function linkLegacyPremiumAfterReview(input, verifyEvidence, databa
         // The claim audit insertion must succeed before binding the legacy ID.
         await db.query(
             `INSERT INTO legacy_account_claims
-            (legacy_user_id,issuer,subject,dodo_customer_id,evidence_reference,proof_method,reviewed_by,previous_user_id,premium_expires_at_claim)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-            [legacyUserId,issuer,subject,proof.dodoCustomerId,evidenceReference,proofMethod,reviewedBy,currentUserId,legacy.rows[0].premium_expires]
+            (legacy_user_id,issuer,subject,dodo_customer_id,evidence_reference,proof_method,reviewed_by,previous_user_id,premium_expires_at_claim,operator_approval_reference)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+            [legacyUserId,issuer,subject,proof.dodoCustomerId,evidenceReference,proofMethod,reviewedBy,currentUserId,legacy.rows[0].premium_expires,operatorApprovalReference || null]
         );
         await db.query(
             'UPDATE auth_identities SET user_id=$1 WHERE issuer=$2 AND subject=$3',
