@@ -49,7 +49,7 @@ test('staging HTTP protects verified account, rejects spoofing, and blocks ALL p
         browser=await chromium.launch({headless:true,args:['--no-sandbox']});
         const context=await browser.newContext();
         const page=await context.newPage();
-        await page.goto(backend+'/health');
+        await page.goto('http://localhost:'+port+'/health');
         const email='mm-ci-' +randomUUID().slice(0,12)+'@example.com';
         const password='Stage!'+randomUUID()+'a1';
         // Login is through Managed Better Auth, not an invented test JWT.
@@ -67,8 +67,8 @@ test('staging HTTP protects verified account, rejects spoofing, and blocks ALL p
             return {signUpStatus:signUp.status,signInStatus:signIn.status,
                 subject:session?.user?.id,token:token?.token};
         },{authBase,email,password});
-        assert.ok(auth.signUpStatus<300,'real Neon staging sign-up must succeed');
-        assert.ok(auth.signInStatus<300,'real Neon staging sign-in must succeed');
+        assert.ok(auth.signUpStatus<300,'real Neon staging sign-up HTTP '+auth.signUpStatus);
+        assert.ok(auth.signInStatus<300,'real Neon staging sign-in HTTP '+auth.signInStatus);
         assert.ok(typeof auth.token==='string' && auth.token.length>40,'real signed token required');
         const claims=decodeJwt(auth.token);
         assert.equal(claims.sub,auth.subject);
