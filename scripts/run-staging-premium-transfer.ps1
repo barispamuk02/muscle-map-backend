@@ -96,12 +96,22 @@ try{
     $otpStart=Get-Date
     $formatValid=$false
     for($attempt=1;$attempt -le 4;$attempt++){
-        if(((Get-Date)-$otpStart).TotalMinutes -ge 9){
+        if((((Get-Date) - $otpStart).TotalMinutes) -ge 9){
             throw 'BILLING_OTP_INPUT_TIME_WINDOW_EXPIRED'
         }
         $entered=Read-PrivateValue 'Fresh six-digit billing OTP (hidden)'
         $entered=$entered.Trim()
-        if($entered -cmatch '^[0-9]{6}
+        if($entered -cmatch '\A[0-9]{6}\z'){
+            $env:STAGING_OTP_CODE=$entered
+            $formatValid=$true
+            break
+        }
+        Write-Host 'OTP_FORMAT_INVALID_ENTER_EXACTLY_6_DIGITS_NO_EMAIL_RESENT' -ForegroundColor Yellow
+    }
+    if(!$formatValid){throw 'BILLING_OTP_LOCAL_INPUT_RETRIES_EXHAUSTED'}
+    & node .\scripts\dodo-staging-confirm-otp.mjs
+    if($LASTEXITCODE -ne 0){throw 'BILLING_OTP_CONFIRM_FAILED'}
+    Remove-Item Env:STAGING_OTP_CODE -ErrorAction SilentlyContinue
 
     # Direct local owner intent gate, after independently confirmed mailbox.
     $decision=(Read-Host 'Transfer this ONE paid Premium only in isolated Neon STAGING? Type APPLY STAGING').Trim()
