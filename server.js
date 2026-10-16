@@ -8,6 +8,7 @@ import {
     expirePremiumIfElapsed,
     getUserByDodoCustomer,
     recordSuccessfulPayment,
+    recordPaymentRiskEvent,
     withWebhookTransaction,
     getAccountUserId,
     isVerifiedNeonAuthSubject
@@ -209,7 +210,8 @@ app.post('/api/webhook/dodo', async (req, res) => {
             setPremium,
             expirePremiumIfElapsed,
             getUserByDodoCustomer,
-            recordSuccessfulPayment
+            recordSuccessfulPayment,
+            recordPaymentRiskEvent
         });
         res.json({ ok: true, skipped: result.skipped });
     } catch (error) {
