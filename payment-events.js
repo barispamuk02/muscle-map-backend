@@ -119,12 +119,11 @@ export async function processDodoEvent(event, eventId, dependencies, now = new D
             const expiresAt = resolvePremiumExpiry(data, now);
             const email = data.customer?.email || null;
             const customerId = data.customer?.customer_id || null;
-            let userId = data.metadata?.user_id || null;
-            if (!userId && customerId) {
-                const found = await dependencies.getUserByDodoCustomer(customerId, client);
-                userId = found?.id || null;
-            }
-            if (!userId) throw new Error('Paid event cannot be matched to a user; retry required');
+            if(typeof dependencies.resolveDodoBillingRecipient!=='function')
+                throw Error('Dodo owner conflict verifier required');
+            const userId=await dependencies.resolveDodoBillingRecipient(
+                data.metadata?.user_id??null,customerId,client
+            );
             const isNewPayment = await dependencies.recordSuccessfulPayment(userId, eventId, data, client);
             if (!isNewPayment) return { action: 'duplicate_payment', userId };
             await dependencies.setPremium(userId, expiresAt, email, customerId, client);
@@ -132,12 +131,11 @@ export async function processDodoEvent(event, eventId, dependencies, now = new D
         }
         if (type === 'subscription.expired') {
             const customerId = data.customer?.customer_id || null;
-            let userId = data.metadata?.user_id || null;
-            if (!userId && customerId) {
-                const found = await dependencies.getUserByDodoCustomer(customerId, client);
-                userId = found?.id || null;
-            }
-            if (!userId) throw new Error('Expiration cannot be matched to a user; retry required');
+            if(typeof dependencies.resolveDodoBillingRecipient!=='function')
+                throw Error('Dodo owner conflict verifier required');
+            const userId=await dependencies.resolveDodoBillingRecipient(
+                data.metadata?.user_id??null,customerId,client
+            );
             await dependencies.expirePremiumIfElapsed(userId, now, client);
             return { action: 'premium_expired', userId };
         }
