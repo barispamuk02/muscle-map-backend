@@ -15,6 +15,7 @@ import {
 import { verifyDodoSignature, processDodoEvent } from './payment-events.js';
 import { authenticateBearer, AuthenticationError, isAuthConfigured } from './auth-identity.js';
 import { sendStagingVerifiedMail } from './staging-mail-test.js';
+import { assertProductionAuthCutoverConfiguration } from './production-auth-rollout-guard.js';
 
 const app = express();
 const stagingOnly = process.env.APP_ENV === 'staging';
@@ -244,6 +245,9 @@ app.post('/api/webhook/dodo', async (req, res) => {
         if ((requireAuth || stagingOnly) && !isAuthConfigured()) {
             throw new Error('PREMIUM_AUTH_REQUIRED needs configured issuer, audience and JWKS');
         }
+        // Never enter production authenticated-only mode with staging Neon,
+        // an unpinned production database, or unverifiable email identities.
+        assertProductionAuthCutoverConfiguration();
         await initDb();
         app.listen(PORT, () => console.log(`🚀 Server on port ${PORT}`));
     } catch (error) {
