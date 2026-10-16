@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import pg from 'pg';
 import {initDb} from '../db.js';
-import {issueBillingEmailChallenge,confirmBillingEmailChallenge} from '../billing-email-otp.js';
+import {issueBillingEmailChallenge,confirmBillingEmailChallenge,readConsumedBillingChallenge} from '../billing-email-otp.js';
 import {retrieveDodoLiveBilling,reconcileDodoLiveOwnership} from '../dodo-ownership-audit.js';
 
 if(!process.env.DATABASE_URL?.includes('muscle_map_ci'))
@@ -94,8 +94,17 @@ try {
         challengeId:first.challengeId,issuer,subject,code:otp,
         secret,db:pool,now:new Date(now.getTime()+130000)
     }),/unavailable/);
+    const storedChallenge=await readConsumedBillingChallenge({
+        challengeId:first.challengeId,issuer,subject,db:pool,
+        now:new Date(now.getTime()+130000)
+    });
+    assert.equal(storedChallenge.verifiedAt,challenge.verifiedAt);
+    await assert.rejects(readConsumedBillingChallenge({
+        challengeId:first.challengeId,issuer,subject:'attacker',db:pool,
+        now:new Date(now.getTime()+130000)
+    }),/consumed/);
     const proof=reconcileDodoLiveOwnership({
-        ...authoritative,claim,challenge,now:new Date(now.getTime()+130000)
+        ...authoritative,claim,challenge:storedChallenge,now:new Date(now.getTime()+130000)
     });
     assert.equal(proof.verified,true);
     assert.equal(proof.paidThrough,'2026-11-14T04:23:00.000Z');
