@@ -1,0 +1,42 @@
+name: Isolated Auth HTTP E2E
+on:
+  pull_request:
+    paths:
+      - 'server.js'
+      - 'db.js'
+      - 'auth-identity.js'
+      - 'tests/staging-auth-http.test.cjs'
+      - '.github/workflows/staging-auth-http.yml'
+  push:
+    branches: ['fix/issue-10-payment-ledger']
+permissions:
+  contents: read
+jobs:
+  isolated:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: muscle_map_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d muscle_map_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/muscle_map_ci?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install backend dependencies
+        run: npm install --no-audit --no-fund
+      - name: Verify locally signed EdDSA JWT and protected Express API against disposable PostgreSQL
+        run: node --test tests/staging-auth-http.test.cjs

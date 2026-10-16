@@ -1,0 +1,144 @@
+# Muscle Map Issue #10 — Production release-readiness audit
+
+Last read-only inspection: 2026-10-16. **NOT APPROVED FOR PRODUCTION DEPLOYMENT**. This audit and code are on backend Draft PR #2 and frontend Draft PR #11. The owner's confirmation authorizes **preparation**, not a live production migration, charging a customer, enabling Neon Auth in production, merging, or switching old Premium clients off.
+
+## Independently verified environments
+
+| Gate | Isolated Neon STAGING | Neon production |
+|---|---|---|
+| Branch | `br-jolly-sunset-b1pl23nn` | `br-odd-hat-b135xeiq` |
+| Managed Neon Auth | Enabled with email-verification requirement | **NOT enabled** |
+| `neon_auth.user` | Exists | Absent |
+| `public.auth_identities` | Exists | Absent |
+| `public.legacy_account_claims` | Exists | Absent |
+| `public.billing_email_challenges` | Exists | Absent |
+| `public.payments` | Exists | Exists |
+| Verified real paid legacy-to-Neon claim | **1**, signed, matching source account and customer | **Not performed** |
+| Existing active Premium rows | 3 before isolated claim | **3** |
+| Active Premium rows with historical Dodo customer mapping | 2 before claim | **2 of 3** |
+| Historical webhook event rows | Separate staging data | **2** |
+| Historical payment ledger rows | Separate staging data | **0** |
+
+The one completed STAGING claim was independently verified as signed with an Ed25519 operator approval, matching the legacy paid customer and verified Neon identity, with an atomic paid-through correction from `2026-11-13T04:23:25.043Z` to merchant-confirmed `2026-11-14T04:23:24.489Z`. No rollback occurred. This is not evidence that the other paid subscribers have been migrated to production or staging.
+
+The managed STAGING tenant currently reports `require_email_verification: true`, `email_verification_method: otp`, but `verify_email_on_sign_up: false` and `verify_email_on_sign_in: false`; these are separate settings. Complete actual inbox signup, bad/expired OTP, verification, session refresh and cross-device acceptance tests before trusting the account experience. Dodo billing-email proof is a **separate** fresh email challenge from Neon Auth signup verification.
+
+## Mandatory blockers before any production deploy or merge
+
+1. **Production Auth provider and verified-email UX**: Provision separately owned production Neon Auth, preserving STAGING. Validate exact issuer, JWKS, email verification config, trusted origins, real delivered/consumed OTP, and logout/refresh. Do not import STAGING Auth users or keys into production.
+2. **Real legacy subscriber ownership**: 3 active historical Premium users remain in production. Only 2 have a Dodo customer mapping; 1 cannot be inferred from email or localStorage ID. Independently reconcile all historical paid customers, preserve paid-through and conflicts, and obtain fresh verified account proof before linking each user. Never "repair" the database by granting a guessed subscription.
+3. **Historical payment ledger**: 2 production webhook events but 0 payment rows. Reconcile them through independently authenticated Dodo records before interpreting historical records. Do not fabricate or replay live charges.
+4. **Refund/dispute/chargeback handling**: Verify merchant webhook semantics and transaction ordering for successful payment, renewal, expiry, refund, dispute, cancellation and ambiguous periods. A missing paid period must fail safely, and refund/reversal policy must be explicit. This is not fully implemented.
+5. **Premium server enforcement**: Static premium-only functions and downloadable assets remain client-readable even if the new API hides a button. Move truly paid functionality behind authenticated server checks, or explicitly describe it as an unprotected convenience UI. Do not market it as secure Premium access before fixing.
+6. **Deployment/restore strategy**: Choose the actual Render workspace/service, read production environment configuration without disclosing secret values, confirm auto-deploy remains OFF, take an independently verified backup/restore point, and rehearse rollback against an isolated clone. Concurrent new Dodo payments make full database restoration unsafe without reconciliation.
+7. **Browser integration**: Test full real frontend/backend wiring against a dedicated STAGING instance using logged-in JWT and original subscriber after F5, logout/login, a second device, mobile and desktop. Do not set the frontend to production issuer before standalone production Auth is provisioned and tested.
+8. **Production-only configuration gate**: New `production-auth-rollout-guard.js` prevents authenticated-only startup whenever `PREMIUM_AUTH_REQUIRED=true` outside isolated STAGING unless `APP_ENV=production` and the production Neon Auth issuer, JWKS and DB host are explicitly pinned, email verification required, TLS uncompromised, LIVE Dodo secrets present, correct origin allowed and STAGING identifiers excluded. This guard does **not** prove customer migration and is not permission to enable authenticated-only mode.
+
+## Two independently approved release stages
+
+**Stage A — backward-compatible billing/account code release (separate approval required):**
+- Leave `PREMIUM_AUTH_REQUIRED=false`; old IDs and existing active Premium access continue to work.
+- Audit and approve new Dodo payment/webhook semantics using real sanitized samples, including refunds, disputes and renewals. A changed handler can affect **live** subscription payments even when Auth cutover is disabled.
+- Before any production schema initialization, take backup and compare additive DDL against production. Never point operator or test scripts at production.
+- Keep GitHub PRs in Draft, Render Auto-Deploy OFF, run full CI, smoke-test isolated staging.
+- Roll back only code when feasible; never blindly restore a database snapshot that would erase new paid transactions.
+
+**Stage B — verified auth cutover (separate approval required):**
+- Provision production Neon Auth independently, with required email verification, origin controls and real inbox acceptance checks.
+- Configure new production-only pins `PRODUCTION_AUTH_ISSUER`, `PRODUCTION_AUTH_JWKS_URL`, `PRODUCTION_DB_HOST`, plus existing `AUTH_ISSUER`, `AUTH_JWKS_URL`, `DATABASE_URL`, and correct `ALLOWED_ORIGINS`.
+- Link each historical Premium only after independently verified Dodo ownership; resolve or explicitly preserve the record lacking a customer identifier.
+- Test both legacy+new flows, active/cancelled/expired users, correct status and entitlement continuity. Only then approve `APP_ENV=production`, `AUTH_PROVIDER=neon`, `REQUIRE_EMAIL_VERIFICATION=true`, `PREMIUM_AUTH_REQUIRED=true`, in a maintenance window.
+- Monitor 401/403/5xx on premium/status, Dodo webhook retries, paid-through and duplicate ledger writes after rollout. Re-enable legacy only using a reviewed rollback plan, respecting latest payment changes.
+
+## Production Auth cutover guard (draft-only)
+
+The new guard executes before `initDb()` when an operator turns on authenticated-only mode outside isolated STAGING. It refuses a missing or mislabelled `APP_ENV` instead of silently skipping validation. It rejects:
+- Any STAGING issuer or STAGING database hostname.
+- Unpinned production issuer, JWKS or database host, or a mismatched issuer / JWKS host.
+- Invalid HTTPS Neon JWKS configuration.
+- Missing verified email enforcement, missing Dodo LIVE credentials, disabled certificate verification, or a database connection without `sslmode=verify-full`.
+- STAGING mail-test and database override configuration, missing `https://muscle-map.app` allowed origin, localhost-origin contamination.
+
+No production credentials or customers belong in GitHub Actions test fixtures, the document, chat, or issue comments. Unit tests use only synthetic hosts and fake credentials; CI's PostgreSQL is disposable and independent of real Neon.
+
+
+## Render and Neon recovery audit — 2026-10-16, My Workspace
+
+The owner confirmed inspection of Render workspace `My Workspace` (`tea-db28v9flot8c73eakmog`). Connected Render service and deployment metadata were inspected **read-only**. No deploy, environment-variable change, restart, snapshot, or production SQL mutation was performed.
+
+| Evidence | LIVE production | Isolated STAGING |
+|---|---|---|
+| Render service | `muscle-map-backend` (`srv-db29eduk1f9s739kr6jg`) | `muscle-map-backend-staging` (`srv-db8ptljl550s73epdii0`) |
+| Render branch | `main` | `fix/issue-10-payment-ledger` |
+| Auto deploy | **OFF** (`autoDeploy=no`, `autoDeployTrigger=off`) | **OFF** |
+| Last LIVE commit | `87860a5015d950cf2097fa3d5bd3a897209b6b2c` | `92b6f5bd7c6da9aa4796954e01535f240d5e64d6` |
+| Last LIVE deploy time (UTC) | 2026-10-15 17:23 | 2026-10-16 05:39 |
+| Render service tier | free | free |
+
+- Production Render dashboard: https://dashboard.render.com/web/srv-db29eduk1f9s739kr6jg
+- STAGING Render dashboard: https://dashboard.render.com/web/srv-db8ptljl550s73epdii0
+- The isolated STAGING Render server is a **real separately deployed instance** (earlier documentation describing it as not provisioned is outdated). Its last deployed commit predates current Draft PR code; **GitHub CI green does not mean Render STAGING has the newest code**.
+- The Render workspace has **no Render-managed PostgreSQL instances**. PostgreSQL lives in the Neon project.
+- Connected Neon project `sparkling-sun-97014945` reports `history_retention_seconds: 21600` (**six hours**). The project returned **zero stored snapshots** and **empty automated snapshot schedules** on both production `br-odd-hat-b135xeiq` and STAGING `br-jolly-sunset-b1pl23nn`. Production branch metadata reports `protected:false`.
+- Existing Neon STAGING branches were created earlier, not verified current, long-lived production backups. They **must not be treated** as a production point-in-time recovery snapshot.
+- Render connector can read deployment/service metadata but does **not** expose a read-only environment-variable listing action. Exact production env var names/values, secret rotation policy and effective PostgreSQL TLS mode remain **unverified**, and must be inspected in the Render dashboard without pasting secrets into logs or chat.
+- A query for recent Render request logs returned no records, so HTTP request success/error rates **could not be inferred** from that source. The latest LIVE deploy metadata shows both services in `live` status, which is not a substitute for independent end-to-end acceptance testing.
+
+### Mandatory safe next operation before any release
+
+1. Create a verified **fresh production backup** with approved secure retention. Choose a Neon snapshot if supported on this project's plan, or a separately encrypted PostgreSQL export to storage not tied to Render's free filesystem. Do not assume that a six-hour PITR retention meets recovery needs.
+2. Verify the backup can be **restored to a new disposable Neon branch or isolated database**. Check row counts, Dodo customer mapping, premium expiries and webhook/payment integrity. Keep new live payments out of overwritten historical snapshots and reconcile them before rollback.
+3. Review Neon Production branch protection and enable it after explicit approval. Verify Render production DB host and HTTPS JWT issuer/JWKS from the service environment without displaying secrets.
+4. Deploy newest Draft code to **STAGING only after separate explicit approval** and verify auth/email/ledger behavior. Do not interpret current staging service as already running this code.
+5. Schedule a controlled Production deployment only after all other release blockers are independently closed and the owner authorizes the exact change.
+
+## Verified Neon Free branch checkpoint and restore drill — 2026-10-16
+
+Owner authorized a **Neon-only zero-upgrade** production checkpoint and an isolated restoration drill. The Neon `free_v3` project has a 10-branch allowance, 6-hour default point-in-time restore window, and lacked snapshots/schedules. Neon-managed paid Snapshots were deliberately **not** enabled.
+
+- **Production source**, unchanged: `production` (`br-odd-hat-b135xeiq`).
+- **Frozen branching checkpoint**: `backup-production-pre-release-20261016` (`br-icy-lake-b17jxntb`), created directly from Production at source LSN `0/28B19A0`, source timestamp **2026-10-16 11:36:11 UTC**. This branch has **no compute** (zero ongoing compute for the checkpoint).
+- **Recovery verification**: `restore-drill-from-prod-backup-20261016` (`br-wispy-moon-b1oz28x1`), created *from the checkpoint*, not the live Production branch. Its parent LSN and timestamp match the checkpoint's branching source; a separate compute was used to query the recovered data, and was manually suspended after the check.
+- **Checks from Production baseline and recovered clone**: 3 users, 3 active Premium, 2 active Premium with recorded Dodo customer, 0 payment ledger rows, 2 webhook event rows and 4 `public` tables. Exact checksums over serialized rows in each of `users`, `payments`, `webhook_events` matched between source and recovered clone. SQL schema diff returned empty. Production was independently rechecked after the branch creation: active entitlements, row counts and data checksums remained unchanged.
+- Both copy branches are separate **non-default branches**. No service/endpoint, user login, Render environment or production Dodo webhook was switched to either one. The copy operation performed **no Production table writes** and did not initiate a payment.
+- Neon API denied explicit custom suspend timeout with `HTTP 412` on the Free plan; the restore branch was created using account defaults instead. The compute was manually requested to suspend once validation finished.
+- Branch allowance: **5 of 10** project branches now used (Production, STAGING, earlier migration rehearsal, checkpoint, recovery drill). These extra branches are subject to Neon Free compute/storage limits; no paid upgrade was requested.
+
+**Limits of this protection:** A Neon child branch is a *copy-on-write checkpoint inside the same project*, not a separate exported offline backup and not an immutable paid Neon Snapshot. It guards against many accidental edits on the production branch but does **not** protect against project deletion, org-level compromise, deletion of the checkpoint, or all upstream platform failures. Production recovery after new subscription charges requires reconciliation of every payment since checkpoint time; overwriting the live database would erase new transactions. Keep the checkpoint untouched. Preserve the recovery-drill branch until the owner approves cleanup.
+
+**Release gate updated:** An independently verified **Neon Free branch checkpoint and restoration from that checkpoint are complete**. A paid snapshot is not mandatory for continuing isolated STAGING QA. Production migration/merge is *still blocked* on the remaining verified auth/payment/legacy subscribers and on choosing an acceptable long-term disaster recovery policy, because branch-only protection is not full off-project backup.
+
+## Refund/dispute and merchant-ownership hardening (Draft only, 2026-10-16)
+
+The backend Draft now contains a first version of *durable review evidence* for Dodo risk signals. Dodo's current official event catalog identifies `refund.succeeded`, `refund.failed` and dispute events including `dispute.opened`, `dispute.won` and `dispute.lost`. Sources: https://docs.dodopayments.com/developer-resources/webhooks/intents/webhook-events-guide , https://docs.dodopayments.com/developer-resources/webhooks/intents/refund and https://docs.dodopayments.com/developer-resources/webhooks/intents/dispute .
+
+**Implemented in Draft only:**
+- New `payment_risk_events` durable table: one row per cryptographically verified, idempotently received refund/dispute notification. Stores event type, provider refund/dispute identifier, payment/customer identifiers, optional *matched* historical payment-ledger user and `pending` review state. It contains no card data or raw webhook payload.
+- Risk event inserts occur **inside the same database transaction** as `webhook_events` idempotency markers. Malformed or missing payment/reversal evidence rolls back both, allowing retry rather than quietly acknowledging a lost dispute.
+- The risk event **does not immediately revoke Premium**. This is intentional until an independently verified refund/dispute policy and renewed paid periods can be reconciled. A later subscription payment may justify ongoing access. A human must review `payment_risk_events` before treating the paid period as settled.
+- `users.dodo_customer_id` receives a partial unique index in the *future* `initDb()` migration, preventing one Dodo customer from being bound to multiple internal users. Read-only Production verification before adding this DDL showed **0 duplicate customer IDs**.
+- Successful payment and subscription-expiry webhooks now use `resolveDodoBillingRecipient` inside the same SQL transaction with advisory locks on the customer and target user. If a Dodo customer already belongs to a different user than `metadata.user_id`, or the indicated user is already bound to another customer, the entire event fails without an entitlement change. If the account isn't recognized, the event remains retryable; no guessed account is created.
+- Synthetic PostgreSQL integration coverage includes matching/new payment, refund on known charge, dispute on historical-unmatched charge, duplicate refund, malformed reversal rollback, mismatched metadata on payment and expiration, and concurrent first payments for the same customer.
+
+**Outstanding for production:** Test representative anonymized Dodo LIVE webhook payloads, policy for *confirmed* full vs partial refunds, disputed vs won/lost cases, delayed/out-of-order events and retry/escalation, including orphaned legacy payment rows. The system does not yet implement automatic merchant-confirmed entitlement revocation; leave the production refund/dispute blocker **open**. Consider restricting subscribed Dodo webhook types to events the system processes during initial rollout and an operator alert for pending risk events, with care not to miss critical payment risks.
+
+For a later read-only risk status after explicit release approval, use aggregate SQL only, e.g. `SELECT event_type, review_status, COUNT(*) FROM payment_risk_events GROUP BY event_type,review_status`. Do **not** post transaction IDs, email addresses or secret values.
+
+## Status
+
+**READY**: one independent STAGING paid claim, signer audit, atomic period correction, staging schema, underlying backend and frontend Draft suites.
+
+**NOT READY**: provisioning production Auth, genuine provider email lifecycle check, remaining customer ownership, LIVE Dodo ledger reconciliation, refund state machine, protected server-only paid operations, selected Render workspace and backup-based rollback.
+
+**Current decision**: Do not merge, deploy, enable production Auth, toggle `PREMIUM_AUTH_REQUIRED`, touch production payment rows or issue any LIVE charge. Continue evidence-based code and verification work in Draft PRs.
+
+
+## Verified merchant billing clarification — 2026-10-16 (latest evidence)
+
+The owner confirmed there is **one real purchaser**, not three. Privately supplied merchant LIVE Transactions CSV and a later payment-status screenshot must be interpreted **as different observation times**: the CSV listed two original `succeeded` charges ($3.99 at approximately 03:22 UTC and 04:22 UTC on Oct 14) while the newer merchant dashboard explicitly shows the *earlier* charge as `Refunded` and the *later* charge as `Successful`. A third Oct 5 attempt was `requires_customer_action`, not a completed payment; it was used for testing. No new refund should be initiated. At the screenshot's observation time, the merchant showed **one unrefunded successful $3.99 charge**, one refunded $3.99 charge, and one incomplete attempt. The owner intentionally made both original Oct 14 charges to test real billing.
+
+Read-only Neon Production verification: of three rows with future `premium_expires`, exactly one matches BOTH the merchant's Dodo Customer ID and the successful checkout metadata user ID. Another has an obviously test-like account identifier and a different stored customer ID, and the third lacks a Dodo customer mapping. Those other two are **not proven buyers** and should **not be bulk-claimed, auto-migrated, or deleted** based only on this evidence. The historical production payment ledger has zero rows; the two webhook event markers are not proof of two outstanding paid entitlements. Never backfill `payments` as two currently billable payments without source-state reconciliation.
+
+The matched paid subscriber is already independently linked in **STAGING only**; the authenticated UI + Backend returned paid Premium until Nov 14, 2026 after session reload. Production legacy expiry is Nov 13, 2026, so the eventual scoped production claim must preserve the merchant-confirmed Nov 14 paid-through, with explicit operator approval. A refund of an **earlier** payment must not automatically erase access justified by a **later, unrefunded** payment; the Draft backend currently records refund events for review rather than indiscriminately revoking Premium. Evidence of the actual signed refund webhook is still missing: do not claim it was processed by the app.
+
+**Narrow the release blockers:** no longer treat this as a missing ownership proof for three independent paying subscribers. Exactly one real purchaser is confirmed from owner and merchant evidence. Retain two unrelated internal Premium rows for controlled review, and keep them separate from real purchase accounting. Remaining live release gates are independent production Neon Auth (issuer, email verification, browser login); production deploy's Dodo refund/webhook configuration and historical-ledger safety; backend paid-content enforcement or honest limitations; reviewed rollback. Do not merge/deploy this Draft, call Dodo LIVE write endpoints, or change Production Neon until separately authorized.
