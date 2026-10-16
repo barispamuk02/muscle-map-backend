@@ -1,3 +1,13 @@
+> **2026-10-16 COMMERCIAL RELEASE SCOPE UPDATE:** The user's only real Dodo paid
+> subscription is an owner-created test purchase, and the other historical
+> Premium records are development tests. **Do not require or execute any legacy
+> paid claim for a NEW customer's Neon Auth -> Dodo -> Premium launch.**
+> The authoritative new-customer release checklist is
+> [NEW_CUSTOMER_PRODUCTION_RELEASE.md](./NEW_CUSTOMER_PRODUCTION_RELEASE.md).
+> Legacy-claim-specific gates below are historical safeguards only for an
+> optional separate owner-requested transfer, NOT dependencies of launch.
+> No Production changes are authorized by this update.
+>
 # Muscle Map — single Production Auth release card (2026-10-16)
 
 ## Verified Production identity, read-only release gate (2026-10-16)
