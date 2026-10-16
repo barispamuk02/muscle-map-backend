@@ -1,5 +1,26 @@
 # Muscle Map — single Production Auth release card (2026-10-16)
 
+## Provisioning completed — 2026-10-16
+
+Owner explicitly approved Production Managed Better Auth provisioning and the sole trusted domain, **not** Production deployment, Premium migration or billing writes.
+
+- Project: `sparkling-sun-97014945`; Production branch `br-odd-hat-b135xeiq`; database `neondb`.
+- Provider: Managed Better Auth (distinct from STAGING).
+- Real Production Auth base URL (public): `https://ep-muddy-rice-b1y5qbz8.neonauth.c-5.eu-central-1.aws.neon.tech/neondb/auth`.
+- Exact `AUTH_ISSUER` and `PRODUCTION_AUTH_ISSUER`: `https://ep-muddy-rice-b1y5qbz8.neonauth.c-5.eu-central-1.aws.neon.tech`.
+- Exact `AUTH_JWKS_URL` and `PRODUCTION_AUTH_JWKS_URL`: `https://ep-muddy-rice-b1y5qbz8.neonauth.c-5.eu-central-1.aws.neon.tech/neondb/auth/.well-known/jwks.json`.
+- Trusted domain confirmed: `https://muscle-map.app`.
+- **DO NOT PUBLISH YET**: New Neon Auth currently reports `require_email_verification: false`, `verify_email_on_sign_up: false`, `verify_email_on_sign_in: false`, and `allow_localhost: true`. The connector's available auth update action cannot modify these flags. In Neon Console, select **Production** branch -> **Settings -> Better Auth**; enable **Sign-up with Email**, **Verify at Sign-up**, select **OTP/code**, require email verification for sign-in, and disable production localhost allowance in domain settings. Verify these flags again via Neon Auth config before publishing. This is a necessary configuration fix, not an invitation to repeat unrelated STAGING checks.
+- Production database baseline prior to enabling: 3 users, 3 future-dated Premium rows, 0 payment ledger rows, 2 webhook records, exactly 1 matching real Dodo customer. Enabling Auth does not authorize rewriting these rows.
+- No Production Render deployment or env updates; no PR merge; no Dodo LIVE operations; no edits to the preserved Neon Production backup.
+
+Frontend pre-release generation command (from Draft PR #11, after email verification is enabled):
+```powershell
+node scripts/prepare-production-account-config.cjs "https://ep-muddy-rice-b1y5qbz8.neonauth.c-5.eu-central-1.aws.neon.tech/neondb/auth"
+```
+This creates an **inactive** local `account-config.production.js`; do not replace `account-config.js` or deploy without a separate, complete cutover approval.
+
+
 **Status: PREPARED, NOT AUTHORIZED TO ENABLE OR DEPLOY PRODUCTION.**
 This is the actionable cutover card, not a request for more STAGING branches or repeated checks.
 
