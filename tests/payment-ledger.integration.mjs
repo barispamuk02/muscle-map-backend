@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import pg from 'pg';
-import { initDb, getPremiumStatus, recordSuccessfulPayment, recordPaymentRiskEvent, setPremium, withWebhookTransaction, expirePremiumIfElapsed, getUserByDodoCustomer, getAccountUserId } from '../db.js';
+import { initDb, getPremiumStatus, recordSuccessfulPayment, recordPaymentRiskEvent, resolveDodoBillingRecipient, setPremium, withWebhookTransaction, expirePremiumIfElapsed, getUserByDodoCustomer, getAccountUserId } from '../db.js';
 import { processDodoEvent } from '../payment-events.js';
 import { linkLegacyPremiumAfterReview } from '../legacy-account-claim.js';
 
@@ -9,7 +9,7 @@ if (!process.env.DATABASE_URL?.includes('muscle_map_ci')) {
 }
 const { Pool } = pg;
 const reader = new Pool({ connectionString: process.env.DATABASE_URL, ssl: false, max: 3 });
-const deps = { withWebhookTransaction, recordSuccessfulPayment, recordPaymentRiskEvent, setPremium, expirePremiumIfElapsed, getUserByDodoCustomer };
+const deps = { withWebhookTransaction, recordSuccessfulPayment, recordPaymentRiskEvent, resolveDodoBillingRecipient, setPremium, expirePremiumIfElapsed, getUserByDodoCustomer };
 
 try {
     await initDb();
@@ -270,6 +270,84 @@ try {
         ['evt_ci_risk_missing_reference']
     )).rows[0].n),0);
     console.log('SIGNED_REFUND_DISPUTE_AUDIT_PENDING_REVIEW_AND_NO_ENTITLEMENT_REVOKE_OK');
+
+    // Proven Dodo customer must never be reassigned via stale or conflicting
+    // checkout metadata, even if the webhook signature itself is valid.
+    const existingCustomer='cus_ci_owner_guard_12345';
+    const trueOwner='u_ci_owner_guard_12345';
+    const otherUser='u_ci_other_guard_12345';
+    const guardPeriod=period('2026-11-19T00:00:00Z');
+    const guardNow=new Date('2026-10-15T00:00:00Z');
+    await setPremium(trueOwner,'2026-11-18T00:00:00Z',null,existingCustomer);
+    await setPremium(otherUser,'2026-11-18T00:00:00Z',null,'cus_ci_other_guard_12345');
+    const beforeOwner=(await getPremiumStatus(trueOwner)).expiresAt;
+    const beforeOther=(await getPremiumStatus(otherUser)).expiresAt;
+    for(const [eventId,metadataId] of [
+        ['evt_ci_guard_different_owner',otherUser],
+        ['evt_ci_guard_unbound_metadata','u_ci_unbound_metadata_12345']
+    ]){
+        await assert.rejects(
+            processDodoEvent({
+                type:'payment.succeeded',data:{
+                    payment_id:'pay_'+eventId,metadata:{user_id:metadataId},
+                    customer:{customer_id:existingCustomer},
+                    total_amount:399,currency:'USD',...guardPeriod
+                }
+            },eventId,deps,guardNow),
+            /Dodo customer and checkout account mismatch/
+        );
+        assert.equal(Number((await reader.query(
+            'SELECT COUNT(*)::int AS n FROM webhook_events WHERE id=$1',[eventId]
+        )).rows[0].n),0);
+        assert.equal(Number((await reader.query(
+            'SELECT COUNT(*)::int AS n FROM payments WHERE dodo_payment_id=$1',
+            ['pay_'+eventId]
+        )).rows[0].n),0);
+    }
+    await assert.rejects(
+        processDodoEvent({
+            type:'subscription.expired',
+            data:{metadata:{user_id:otherUser},customer:{customer_id:existingCustomer}}
+        },'evt_ci_guard_wrong_expire',deps,guardNow),
+        /Dodo customer and checkout account mismatch/
+    );
+    assert.equal((await getPremiumStatus(trueOwner)).expiresAt,beforeOwner);
+    assert.equal((await getPremiumStatus(otherUser)).expiresAt,beforeOther);
+    const legitimate=await processDodoEvent({
+        type:'payment.succeeded',
+        data:{
+            payment_id:'pay_ci_owner_legitimate_12345',
+            metadata:{user_id:trueOwner},customer:{customer_id:existingCustomer},
+            total_amount:399,currency:'USD',...guardPeriod
+        }
+    },'evt_ci_guard_legitimate_owner',deps,guardNow);
+    assert.equal(legitimate.result.action,'premium_activated');
+    assert.equal((await getPremiumStatus(trueOwner)).expiresAt,'2026-11-19T00:00:00.000Z');
+
+    // Concurrent distinct metadata users for one *new* Dodo customer cannot
+    // both acquire the merchant ownership record.
+    const sameNewCustomer='cus_ci_concurrent_new_12345';
+    const results=await Promise.allSettled([
+        processDodoEvent({
+            type:'payment.succeeded',
+            data:{payment_id:'pay_ci_guard_new_1',metadata:{user_id:'u_ci_guard_new_1'},
+                customer:{customer_id:sameNewCustomer},
+                total_amount:399,currency:'USD',...guardPeriod}
+        },'evt_ci_guard_new_1',deps,guardNow),
+        processDodoEvent({
+            type:'payment.succeeded',
+            data:{payment_id:'pay_ci_guard_new_2',metadata:{user_id:'u_ci_guard_new_2'},
+                customer:{customer_id:sameNewCustomer},
+                total_amount:399,currency:'USD',...guardPeriod}
+        },'evt_ci_guard_new_2',deps,guardNow)
+    ]);
+    assert.equal(results.filter(x=>x.status==='fulfilled').length,1);
+    assert.equal(results.filter(x=>x.status==='rejected').length,1);
+    assert.equal(Number((await reader.query(
+        'SELECT COUNT(*)::int AS n FROM users WHERE dodo_customer_id=$1',
+        [sameNewCustomer]
+    )).rows[0].n),1);
+    console.log('DODO_CUSTOMER_METADATA_CONFLICTS_AND_CONCURRENT_OWNER_GUARD_OK');
 
     console.log('REAL_POSTGRES_PAYMENT_LEDGER_ALL_OK');
 } finally {
