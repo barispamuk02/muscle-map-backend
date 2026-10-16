@@ -7,7 +7,7 @@ import pool from './db.js';
  * An email match, receipt ID or localStorage userId alone is insufficient.
  *
  * No Dodo API key or subscriber e-mail is included in the migration record.
- * Does not change premium_expires or call Dodo APIs.
+ * May extend premium_expires only to merchant-verified paidThrough in the same\n * atomic transaction; never shortens paid time and never calls Dodo APIs.
  */
 export async function linkLegacyPremiumAfterReview(input, verifyEvidence, database = pool) {
     const { issuer, subject, legacyUserId, reviewedBy, proofMethod, evidenceReference, operatorApprovalReference } = input || {};
@@ -55,6 +55,12 @@ export async function linkLegacyPremiumAfterReview(input, verifyEvidence, databa
             !legacy.rows[0].premium_expires) {
             throw new Error('Legacy subscriber does not match verified Dodo customer');
         }
+        const previousExpiry=new Date(legacy.rows[0].premium_expires).getTime();
+        const merchantExpiry=new Date(proof.paidThrough).getTime();
+        if(!Number.isFinite(previousExpiry) || !Number.isFinite(merchantExpiry) ||
+           previousExpiry>merchantExpiry || merchantExpiry<=Date.now()) {
+            throw new Error('Legacy paid period conflicts with merchant-verified expiry');
+        }
         const mapped = await db.query(
             'SELECT user_id FROM auth_identities WHERE issuer=$1 AND subject=$2 FOR UPDATE',
             [issuer,subject]
@@ -89,10 +95,20 @@ export async function linkLegacyPremiumAfterReview(input, verifyEvidence, databa
         // The claim audit insertion must succeed before binding the legacy ID.
         await db.query(
             `INSERT INTO legacy_account_claims
-            (legacy_user_id,issuer,subject,dodo_customer_id,evidence_reference,proof_method,reviewed_by,previous_user_id,premium_expires_at_claim,operator_approval_reference)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-            [legacyUserId,issuer,subject,proof.dodoCustomerId,evidenceReference,proofMethod,reviewedBy,currentUserId,legacy.rows[0].premium_expires,operatorApprovalReference || null]
+            (legacy_user_id,issuer,subject,dodo_customer_id,evidence_reference,proof_method,reviewed_by,previous_user_id,premium_expires_at_claim,premium_expires_after_claim,operator_approval_reference)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+            [legacyUserId,issuer,subject,proof.dodoCustomerId,evidenceReference,proofMethod,reviewedBy,currentUserId,legacy.rows[0].premium_expires,proof.paidThrough,operatorApprovalReference || null]
         );
+        // Reconcile the known 30-day truncation while the customer and
+        // verified paid period are locked. The prior value remains audited.
+        // One transactional failure must roll back BOTH expiry and identity.
+        const extended=await db.query(
+            'UPDATE users SET premium_expires=$2,updated_at=NOW() '+
+            'WHERE id=$1 AND premium_expires=$3 RETURNING id',
+            [legacyUserId,proof.paidThrough,legacy.rows[0].premium_expires]
+        );
+        if(extended.rowCount!==1)
+            throw new Error('Concurrent paid entitlement update; manual reconciliation required');
         await db.query(
             'UPDATE auth_identities SET user_id=$1 WHERE issuer=$2 AND subject=$3',
             [legacyUserId,issuer,subject]
