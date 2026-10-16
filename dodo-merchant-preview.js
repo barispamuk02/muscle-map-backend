@@ -74,6 +74,6 @@ export function summarizeDodoMerchantEvidence(payment,subscription,now=new Date(
         paymentAndSubscriptionCustomerMatch:true,
         paymentAndSubscriptionBillingEmailMatch:true,
         accountOwnership:'NOT_VERIFIED',
-        legacyNeonAccountLinked:false
+        legacyNeonAccountLinked:'NOT_CHECKED'
     });
 }
