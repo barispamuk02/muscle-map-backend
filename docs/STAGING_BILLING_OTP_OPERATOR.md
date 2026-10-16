@@ -1,10 +1,10 @@
 # Local staging billing-email ownership challenge
 
-Status: **code prepared, no real claim sent or verified**. This workflow remains local-operator only, not accessible as a public HTTP route. Use only the dedicated staging Neon DB branch and the read-only Dodo LIVE audit key.
+Status: **one real owner-requested challenge sent, but verification was NOT completed; corrected local script now prepared for a separately authorized fresh attempt**. This workflow remains local-operator only, not accessible as a public HTTP route. Use only the dedicated staging Neon DB branch and the read-only Dodo LIVE audit key.
 
 ## Trust boundary
 
-`scripts/dodo-staging-send-otp.mjs` performs only two **GET** calls to Dodo LIVE, then verifies that the Dodo billing email matches **exactly one verified, not banned Neon Auth account** on staging, that the Dodo customer ID matches **exactly one existing paid legacy account**, and that no conflicting claim or current paid identity exists. The resulting mailbox challenge is tied to issuer, subject and Dodo customer ID and requires typed `SEND` consent in the local terminal. The API credential stays on the operator's computer. The recipient comes only from the authenticated Dodo merchant read, never from browser data or clipboard-supplied arbitrary address.
+`scripts/dodo-staging-send-otp.mjs` performs only two **GET** calls to Dodo LIVE, then verifies that the Dodo billing email matches **exactly one verified, not banned Neon Auth account** on staging, that the Dodo customer ID matches **exactly one existing paid legacy account**, and that no conflicting claim or current paid identity exists. The resulting mailbox challenge is tied to issuer, subject and Dodo customer ID. The local launcher prompts for explicit `SEND` before initiating Dodo + Neon validation, and will send only after validation succeeds. The API credential stays on the operator's computer. The recipient comes only from the authenticated Dodo merchant read, never from browser data or clipboard-supplied arbitrary address.
 
 `scripts/dodo-staging-confirm-otp.mjs` confirms the fresh code once in the staging DB. It does NOT link users, modify Premium, change Dodo billing, access production or even contact Dodo. It only marks a challenge as consumed (10-minute expiry, max 5 attempts).
 
@@ -26,8 +26,8 @@ To prevent accidental secret disclosure, load secret variables using `Read-Host 
 1. Upgrade the **separate local working copy** from the Draft branch using `git pull --ff-only` and check that CI passed.
 2. Read live merchant payment+subscription in the local process, retrieve exactly one matching staging old Premium and exactly one confirmed Neon account with matching billing address.
 3. Prompt for explicit `SEND`; without this exact answer no email is sent and no challenge row is created.
-4. On acceptance, send a *separate* 6-digit billing-ownership OTP via Resend to Dodo-provided billing email. Save only HMAC digest and metadata in the staging DB. In terminal show the `clm_...` challenge identifier locally and 10-minute expiry. Resend response represents accepted mail, not confirmed mailbox ownership.
-5. After owner receives the mail, enter the challenge ID and six-digit code **only in local PowerShell hidden input environment variables**, then run `node scripts/dodo-staging-confirm-otp.mjs`. The secret and OTP are not logged or sent to ChatGPT. The database records one-time successful verification.
+4. On acceptance and successful merchant + staging checks, send a *fresh* 6-digit billing-ownership OTP via Resend to Dodo-provided billing email. Save only the HMAC digest and metadata in staging. The PowerShell launcher captures the `clm_...` identifier in memory and passes it directly to the confirmation command without displaying, saving or requiring its manual entry. Resend response means accepted mail, not confirmed ownership.
+5. When the new mail arrives, type `YES` and enter only the NEW six-digit code via hidden PowerShell input **within the SAME launcher session**. The challenge identifier is automatically passed by the launcher; never manually copy or enter it. The original ephemeral HMAC secret stays in that session through confirmation; the script cleans all environment variables afterward. The database records a one-time successful verification only if all safeguards pass.
 6. STOP. Do not automatically execute `linkLegacyPremiumAfterReview`. After a separately requested approval, build and run a privileged operator-only process to reread Dodo merchant records and the consumed staging challenge, then plan audited staging migration. Production migration and expiry reconciliation require separate approvals and release checks.
 
 ## Current status and limitations
@@ -35,5 +35,5 @@ To prevent accidental secret disclosure, load secret variables using `Read-Host 
 - Owner manually confirmed that the Dodo billing email and Neon sign-in email match. This statement alone is NOT independent proof.
 - Read-only staging Neon audit showed one verified unbanned Neon Auth user, one attached unentitled auth identity, one eligible historical paid row created October 14, and no migration claims.
 - Local read-only merchant audit was successful with USD 3.99 and period through 2026-11-14T04:23:24.489Z, no refund/dispute indicated in payment details. The actual old Neon expiry still differs.
-- Scripts and tests are committed only in Draft backend branch; they have not contacted LIVE Dodo, delivered a claim code or written a real claim in this iteration.
+- Owner already ran the previous local operator version successfully through Resend mail delivery. Confirmation failed at local `LOCAL_STAGING_OTP_CONFIG_INVALID` before database OTP validation. Staging DB showed one sent challenge and no consumed/verified challenge; the ephemeral HMAC secret was erased at script exit, so that older code cannot be verified in a new session. Corrected source requires an explicit fresh `SEND` to issue a new code, which replaces the unusable one. No real legacy claim has been written.
 - No Dodo LIVE key is ever deployed to publicly reachable staging Render.
