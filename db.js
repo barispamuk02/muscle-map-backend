@@ -33,6 +33,8 @@ export async function initDb() {
         processed_at TIMESTAMPTZ DEFAULT NOW()
     )`);
     await pool.query('CREATE INDEX IF NOT EXISTS idx_users_dodo_customer ON users(dodo_customer_id)');
+    // A second durable constraint independent of the deterministic payment record ID.
+    await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_unique_dodo_id ON payments(dodo_payment_id) WHERE dodo_payment_id IS NOT NULL');
     console.log('✅ DB initialized');
 }
 
@@ -79,7 +81,12 @@ export async function setPremium(userId, expiresAt, email = null, dodoCustomerId
 export async function recordSuccessfulPayment(userId, eventId, data, db = pool) {
     const paymentId = typeof data?.payment_id === 'string' && data.payment_id.trim()
         ? data.payment_id.trim() : null;
-    const recordId = paymentId ? 'dodo:' + paymentId : 'webhook:' + eventId;
+    // Dodo declares payment_id required for payment webhooks. Fail and retry
+    // malformed events rather than treating a new event ID as a new charge.
+    if (!paymentId || paymentId.length > 200) {
+        throw new Error('Missing or invalid Dodo payment_id');
+    }
+    const recordId = 'dodo:' + paymentId;
     const rawAmount = data?.total_amount;
     const amount = typeof rawAmount === 'number' && Number.isSafeInteger(rawAmount) && rawAmount >= 0
         ? rawAmount : null;
