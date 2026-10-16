@@ -32,7 +32,16 @@ import {ENROLLED_PRODUCTION_APPROVER_FINGERPRINT}
 const env=process.env;
 const rl=createInterface({input,output,terminal:Boolean(input.isTTY)});
 let placeholderMayExist=false;
+let placeholderWriteMayHaveStarted=false;
+let paidClaimMayHaveStarted=false;
+let checkpoint='CONFIGURATION';
 function fail(){throw Error('PRODUCTION_SINGLE_OWNER_CLAIM_STOPPED');}
+// No exception details, URLs, SQL, provider responses, identities or secrets
+// are printed, only fixed phase names and restricted internal error codes.
+function safeFailureCode(error){
+    const message=typeof error?.message==='string'?error.message:'';
+    return /^[A-Z][A-Z0-9_]{4,90}$/.test(message) ? message : 'DETAILS_REDACTED';
+}
 const safeEmail=x=>typeof x==='string'?x.trim().toLowerCase():'';
 async function execute(){
     assertProductionDatabaseTarget(env);
@@ -53,18 +62,22 @@ async function execute(){
 
     // Prove encrypted local key already exists, matches separately PINNED
     // public fingerprint, and has not been copied from a staging key.
+    checkpoint='LOCAL_SIGNING_KEY';
     const key=await provisionLocalProductionOperatorKey({
         passphrase:env.PRODUCTION_OPERATOR_PASSPHRASE
     });
     if(key.created||key.publicKeyFingerprint!==ENROLLED_PRODUCTION_APPROVER_FINGERPRINT)
         fail();
 
+    checkpoint='NEON_PASSWORD_SIGN_IN';
     const bearer=await acquireProductionAuthBearer({
         email:env.PRODUCTION_OWNER_LOGIN_EMAIL,
         password:env.PRODUCTION_OWNER_LOGIN_PASSWORD
     });
+    checkpoint='NEON_JWT_VERIFICATION';
     const identity=await authenticateBearer(bearer,env);
     if(identity.issuer!==PRODUCTION_AUTH_ISSUER)fail();
+    checkpoint='NEON_VERIFIED_IDENTITY_DATABASE_READ';
     const user=await pool.query(
         'SELECT email,"emailVerified" AS verified,COALESCE(banned,false) AS banned '+
         'FROM neon_auth."user" WHERE id=$1::uuid',[identity.subject]
@@ -76,6 +89,7 @@ async function execute(){
 
     // Verify actual Dodo payment + ACTIVE subscription BEFORE creating a
     // placeholder in public.users. Never use a refunded test charge.
+    checkpoint='DODO_LIVE_READ_ONLY';
     const records=await retrieveDodoLiveBilling({
         paymentId:env.PRODUCTION_PAYMENT_ID,
         subscriptionId:env.PRODUCTION_SUBSCRIPTION_ID,
@@ -83,6 +97,7 @@ async function execute(){
     });
     if(records.payment?.payment_id!==env.PRODUCTION_PAYMENT_ID ||
        records.subscription?.subscription_id!==env.PRODUCTION_SUBSCRIPTION_ID)fail();
+    checkpoint='DODO_MERCHANT_PAYMENT_REVIEW';
     const merchant=summarizeDodoMerchantEvidence(
         records.payment,records.subscription,new Date()
     );
@@ -91,6 +106,7 @@ async function execute(){
     if(!billing||billing!==safeEmail(user.rows[0].email)||
        billing!==safeEmail(records.subscription.customer?.email))
         fail();
+    checkpoint='LEGACY_PAID_ACCOUNT_READ';
     const old=await pool.query(
         'SELECT id,premium_expires FROM public.users WHERE dodo_customer_id=$1',
         [customerId]
@@ -108,16 +124,20 @@ async function execute(){
 
     // This is the FIRST authorized business write. It creates ONLY an empty
     // placeholder, never an email-based paid entitlement.
+    checkpoint='CREATE_EMPTY_AUTH_PLACEHOLDER';
+    placeholderWriteMayHaveStarted=true;
     const bootstrap=await initializeProductionVerifiedOwner({
         authorization:bearer,env,db:pool
     });
     if(!bootstrap.status||bootstrap.paidClaimPerformed!==false)fail();
     placeholderMayExist=true;
+    checkpoint='PRODUCTION_CLAIM_PREVIEW';
     const preview=await previewProductionPaidClaim({env,db:pool});
     if(preview.status!=='PRODUCTION_CLAIM_READ_ONLY_PRECHECK_PASSED' ||
        preview.paidThrough!==merchant.paidThroughUtc)fail();
 
     // Independent NEW billing mailbox proof, not the earlier Neon recovery OTP.
+    checkpoint='BILLING_OTP_DELIVERY';
     const issued=await issueBillingEmailChallenge({
         issuer:identity.issuer,subject:identity.subject,
         customerId,recipientEmail:billing,merchantEmail:billing,
@@ -135,6 +155,7 @@ async function execute(){
         console.log('OTP_FORMAT_INVALID_ENTER_6_DIGITS');
     }
     if(!code)fail();
+    checkpoint='BILLING_OTP_VERIFICATION';
     await confirmBillingEmailChallenge({
         challengeId:issued.challengeId,
         issuer:identity.issuer,subject:identity.subject,
@@ -155,10 +176,13 @@ async function execute(){
         expiresAt:new Date(now.getTime()+3*60000).toISOString(),
         nonce:randomBytes(16).toString('hex')
     };
+    checkpoint='LOCAL_CRYPTOGRAPHIC_APPROVAL';
     const signed=await signLocalProductionClaim({
         passphrase:env.PRODUCTION_OPERATOR_PASSPHRASE,payload
     });
     if(signed.publicKeyFingerprint!==ENROLLED_PRODUCTION_APPROVER_FINGERPRINT)fail();
+    checkpoint='APPLY_AUTHORIZED_PAID_CLAIM';
+    paidClaimMayHaveStarted=true;
     const result=await applyApprovedProductionPaidClaim({
         env,approval:signed.approval,
         operatorPublicKeyPem:signed.publicKeyPem,db:pool
@@ -167,6 +191,7 @@ async function execute(){
 
     // Independent read-back: proof and paid entitlement are transactionally
     // bound, not just reported by successful function return.
+    checkpoint='PAID_CLAIM_INDEPENDENT_READBACK';
     const r=await pool.query(
         'SELECT ai.user_id,u.premium_expires,u.dodo_customer_id,'+
         'lc.previous_user_id,lc.premium_expires_after_claim,lc.operator_approval_reference '+
@@ -191,9 +216,18 @@ async function execute(){
     console.log('RENDER_AND_BACKUP=UNTOUCHED');
 }
 try{await execute();}
-catch{
-    // No private identifiers or provider details in operator output.
+catch(error){
+    // Output a fixed, non-secret phase and an internal-only error identifier.
     console.error('PRODUCTION_SINGLE_OWNER_CLAIM=STOPPED_NEEDS_REVIEW');
-    if(placeholderMayExist)console.error('EMPTY_AUTH_PLACEHOLDER_MAY_EXIST_NO_PREMIUM_GRANTED');
+    console.error('PRODUCTION_FAILED_PHASE='+checkpoint);
+    console.error('PRODUCTION_FAILURE_CODE='+safeFailureCode(error));
+    if(!placeholderWriteMayHaveStarted)
+        console.error('PRODUCTION_BUSINESS_WRITES_NOT_STARTED=YES');
+    else if(!paidClaimMayHaveStarted)
+        console.error('PAID_CLAIM_NOT_STARTED=YES');
+    else
+        console.error('PAID_CLAIM_MAY_HAVE_COMMITTED=CHECK_NEON_READ_ONLY_BEFORE_ANY_RETRY');
+    if(placeholderMayExist)
+        console.error('EMPTY_AUTH_PLACEHOLDER_MAY_EXIST=YES');
     process.exitCode=1;
 }finally{rl.close();await pool.end();}
