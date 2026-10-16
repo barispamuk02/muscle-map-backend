@@ -61,10 +61,14 @@ export function reconcileDodoLiveOwnership({payment,subscription,claim,challenge
         payment.status!=='succeeded'||subscription.status!=='active'||
         payment.is_update_payment_method===true) fail('merchant identity or state');
     if(payment.currency!=='USD'||payment.total_amount!==399||
-        subscription.product_id!==claim.productId||
-        !Array.isArray(payment.product_cart)||
-        !payment.product_cart.some(p=>p.product_id===claim.productId&&p.quantity===1))
+        subscription.product_id!==claim.productId)
         fail('product or amount');
+    // The official Dodo payment details model allows product_cart=null
+    // for subscription charges. Trust the independently fetched
+    // subscription.product_id, and cross-check the cart when populated.
+    if(Array.isArray(payment.product_cart)&&payment.product_cart.length>0&&
+        !payment.product_cart.some(p=>p.product_id===claim.productId&&p.quantity===1))
+        fail('product cart does not match subscription');
     if((payment.refund_status && payment.refund_status!=='none')||
         !Array.isArray(payment.refunds)||payment.refunds.length!==0||
         !Array.isArray(payment.disputes)||payment.disputes.length!==0)
