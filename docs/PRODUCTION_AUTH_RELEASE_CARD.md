@@ -73,3 +73,8 @@ Frontend: run `node scripts/prepare-production-account-config.cjs "<PRODUCTION_N
 ## Current explicit approval boundary
 
 Preparation and Draft GitHub changes are authorized; **Provisioning Auth on Production, altering Production Neon schema/claims, merging a Draft PR, changing Render Production environment, deploying Production, and contacting Dodo LIVE to charge/refund are not authorized by this card.** Obtain separate owner approval identifying the exact live action.
+
+
+## Saved Production Auth settings verified (2026-10-16)
+
+After operator saved the Neon Console **Verify at Sign-up** (verification code) setting, independent Neon Auth config returned `email_password.require_email_verification=true`, `email_verification_method=otp`, and trusted origin `https://muscle-map.app`. Two separate fields, `verify_email_on_sign_up=false` and `verify_email_on_sign_in=false`, remained unchanged even though Console showed Verify at Sign-up enabled. **Do not interpret these two flags by themselves as proof of a failed sign-up policy, and do not claim email delivery has passed.** Verify a genuine new Production account requires/consumes an email OTP during the separately approved acceptance test. Production `allow_localhost=true` is still pending: Neon recommends turning it OFF before public launch. Connected Neon auth-config update exposes only application name, not the localhost or email/password switches, so the operator must change those via Neon Console. Other optional work (Google shared OAuth, custom SMTP, wider content-paywall enforcement) remains separate from enabling the provider.
