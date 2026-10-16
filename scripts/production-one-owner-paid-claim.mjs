@@ -181,8 +181,8 @@ async function execute(){
     if(r.rowCount!==1||row.user_id!==old.rows[0].id||
        row.dodo_customer_id!==customerId||
        row.previous_user_id===old.rows[0].id||
-       Date.parse(row.premium_expires)!==paidThrough||
-       Date.parse(row.premium_expires_after_claim)!==paidThrough||
+       new Date(row.premium_expires).getTime()!==paidThrough||
+       new Date(row.premium_expires_after_claim).getTime()!==paidThrough||
        !/^ed25519:[a-f0-9]{64}$/.test(row.operator_approval_reference??''))fail();
     console.log('PRODUCTION_SINGLE_OWNER_PAID_CLAIM=PASS');
     console.log('SIGNATURE_AND_BILLING_OTP=VERIFIED');
