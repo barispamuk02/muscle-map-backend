@@ -105,6 +105,19 @@ export async function getAccountUserId({ issuer, subject }) {
     }
 }
 
+/**
+ * Trusted Neon Auth email/ban status, never read from browser flags.
+ * Only call after JWT signature and issuer have been verified.
+ */
+export async function isVerifiedNeonAuthSubject(subject, db = pool) {
+    if (typeof subject !== 'string' || !/^[0-9a-fA-F-]{36}$/.test(subject)) return false;
+    const result = await db.query(
+        'SELECT "emailVerified" AS verified FROM neon_auth."user" WHERE id = $1::uuid AND COALESCE(banned, false) = false',
+        [subject]
+    );
+    return result.rows.length === 1 && result.rows[0].verified === true;
+}
+
 export async function getPremiumStatus(userId) {
     const result = await pool.query('SELECT premium_expires FROM users WHERE id = $1', [userId]);
     const raw = result.rows[0]?.premium_expires;
