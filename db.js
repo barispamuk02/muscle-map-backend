@@ -33,6 +33,16 @@ export async function initDb() {
         event_type TEXT,
         processed_at TIMESTAMPTZ DEFAULT NOW()
     )`);
+    // A merchant customer may legitimately pay for two separate app accounts
+    // (including historic test accounts). A subscription, not a Dodo customer,
+    // is the immutable entitlement ownership boundary.
+    await pool.query(`CREATE TABLE IF NOT EXISTS billing_subscription_owners (
+        subscription_id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id),
+        dodo_customer_id TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_billing_subscription_customer ON billing_subscription_owners(dodo_customer_id)');
     await pool.query(`CREATE TABLE IF NOT EXISTS auth_identities (
         issuer TEXT NOT NULL,
         subject TEXT NOT NULL,
@@ -207,13 +217,24 @@ export async function setPremium(userId, expiresAt, email = null, dodoCustomerId
     else expires = new Date(0);
     if (!Number.isFinite(expires.getTime())) throw new Error('Invalid Premium expiry');
 
+    // Do not duplicate/steal the legacy owner of a Dodo merchant customer.
+    // Payment/subscription IDs remain uniquely bound to the new Auth account.
+    // The signed payment's subscription owner is tracked independently.
+    let customerForRow=dodoCustomerId;
+    if(customerForRow){
+        const owner=await db.query(
+            'SELECT id FROM users WHERE dodo_customer_id=$1 AND id<>$2 LIMIT 1',
+            [customerForRow,userId]
+        );
+        if(owner.rowCount)customerForRow=null;
+    }
     await db.query(`INSERT INTO users (id, email, dodo_customer_id, premium_expires, updated_at)
         VALUES ($1, $2, $3, $4, NOW())
         ON CONFLICT (id) DO UPDATE SET
           email = COALESCE(EXCLUDED.email, users.email),
           dodo_customer_id = COALESCE(EXCLUDED.dodo_customer_id, users.dodo_customer_id),
           premium_expires = GREATEST(COALESCE(users.premium_expires, EXCLUDED.premium_expires), EXCLUDED.premium_expires),
-          updated_at = NOW()`, [userId, email, dodoCustomerId, expires]);
+          updated_at = NOW()`, [userId, email, customerForRow, expires]);
     console.log(`✅ Premium for ${userId} until ${expires.toISOString()}`);
 }
 
@@ -294,33 +315,70 @@ export async function expirePremiumIfElapsed(userId, now = new Date(), db = pool
  * checkout metadata over the durable Dodo customer mapping. Called ONLY
  * inside withWebhookTransaction's open SQL transaction.
  */
-export async function resolveDodoBillingRecipient(metadataUserId,customerId,db=pool) {
+export async function resolveDodoBillingRecipient(
+    metadataUserId,customerId,db=pool,subscriptionId=null,bindPaidSubscription=false
+){
     const validUser=value=>typeof value==='string' &&
         /^u_[A-Za-z0-9_-]{5,180}$/.test(value);
     const validCustomer=value=>typeof value==='string' &&
         /^cus_[A-Za-z0-9_-]{5,180}$/.test(value);
+    const validSubscription=value=>typeof value==='string' &&
+        /^sub_[A-Za-z0-9_-]{5,180}$/.test(value);
     if(metadataUserId!=null && !validUser(metadataUserId))
         throw Error('Dodo webhook metadata user ID malformed');
     if(customerId!=null && !validCustomer(customerId))
         throw Error('Dodo webhook merchant customer ID malformed');
-    if(!metadataUserId && !customerId)
+    if(subscriptionId!=null && !validSubscription(subscriptionId))
+        throw Error('Dodo webhook subscription ID malformed');
+    if(bindPaidSubscription&&!subscriptionId)
+        throw Error('Paid event needs a specific subscription ID');
+    if(!metadataUserId && !customerId && !subscriptionId)
         throw Error('Paid event cannot be matched to a user; retry required');
-    // Locks are ordered consistently across deliveries: customer then user.
+
+    // Stable ordering across webhook deliveries prevents cross-owner races.
     if(customerId)await db.query(
         'SELECT pg_advisory_xact_lock(hashtext($1),hashtext($2))',
         ['dodo-customer',customerId]
+    );
+    if(subscriptionId)await db.query(
+        'SELECT pg_advisory_xact_lock(hashtext($1),hashtext($2))',
+        ['dodo-subscription',subscriptionId]
     );
     if(metadataUserId)await db.query(
         'SELECT pg_advisory_xact_lock(hashtext($1),hashtext($2))',
         ['dodo-user',metadataUserId]
     );
+    const priorSubscription=subscriptionId?await db.query(
+        'SELECT user_id,dodo_customer_id FROM billing_subscription_owners WHERE subscription_id=$1',
+        [subscriptionId]
+    ):{rows:[],rowCount:0};
+    const subOwner=priorSubscription.rows[0]??null;
+    if(subOwner){
+        if(metadataUserId && metadataUserId!==subOwner.user_id)
+            throw Error('Dodo subscription belongs to a different authenticated account');
+        if(customerId&&subOwner.dodo_customer_id&&customerId!==subOwner.dodo_customer_id)
+            throw Error('Dodo subscription customer changed unexpectedly');
+        return subOwner.user_id;
+    }
     const owners=customerId?await db.query(
         'SELECT id FROM users WHERE dodo_customer_id=$1 LIMIT 2',[customerId]
     ):{rowCount:0,rows:[]};
     if(owners.rowCount>1)throw Error('Ambiguous Dodo customer ownership');
     const boundId=owners.rows[0]?.id??null;
-    if(metadataUserId&&boundId&&metadataUserId!==boundId)
-        throw Error('Dodo customer and checkout account mismatch');
+    if(metadataUserId&&boundId&&metadataUserId!==boundId){
+        // Protect any existing verified customer against account takeover.
+        // The only permitted exception is a NEW VERIFIED Neon Auth buyer using
+        // a merchant customer from an UNMAPPED LEGACY test account.
+        const row=await db.query(
+            `SELECT
+                EXISTS(SELECT 1 FROM auth_identities WHERE user_id=$1) AS new_verified_mapping,
+                EXISTS(SELECT 1 FROM auth_identities WHERE user_id=$2) AS old_verified_mapping`,
+            [metadataUserId,boundId]
+        );
+        if(row.rows[0]?.new_verified_mapping!==true ||
+           row.rows[0]?.old_verified_mapping!==false)
+            throw Error('Dodo customer and checkout account mismatch');
+    }
     if(metadataUserId){
         const existing=await db.query(
             'SELECT dodo_customer_id FROM users WHERE id=$1 FOR UPDATE',
@@ -329,12 +387,36 @@ export async function resolveDodoBillingRecipient(metadataUserId,customerId,db=p
         const prior=existing.rows[0]?.dodo_customer_id??null;
         if(prior&&customerId&&prior!==customerId)
             throw Error('Dodo checkout account already belongs to another customer');
-        return metadataUserId;
     }
-    if(boundId)return boundId;
-    throw Error('Paid event cannot be matched to a user; retry required');
+    const userId=metadataUserId||boundId;
+    if(!userId)
+        throw Error('Paid event cannot be matched to a user; retry required');
+    if(bindPaidSubscription){
+        // Existing legacy checkouts can carry a signed server ID that has not
+        // yet received a public.users row. Create only an empty placeholder
+        // inside this same verified payment transaction (rollback on failure).
+        await db.query(
+            'INSERT INTO users (id) VALUES ($1) ON CONFLICT (id) DO NOTHING',
+            [userId]
+        );
+        await db.query(
+            `INSERT INTO billing_subscription_owners
+                (subscription_id,user_id,dodo_customer_id)
+             VALUES ($1,$2,$3)
+             ON CONFLICT (subscription_id) DO NOTHING`,
+            [subscriptionId,userId,customerId]
+        );
+        const committed=await db.query(
+            'SELECT user_id,dodo_customer_id FROM billing_subscription_owners WHERE subscription_id=$1',
+            [subscriptionId]
+        );
+        if(committed.rows[0]?.user_id!==userId ||
+            (customerId&&committed.rows[0]?.dodo_customer_id&&
+                committed.rows[0].dodo_customer_id!==customerId))
+            throw Error('Dodo subscription belongs to a different authenticated account');
+    }
+    return userId;
 }
-
 export async function getUserByDodoCustomer(customerId, db = pool) {
     const result = await db.query('SELECT id FROM users WHERE dodo_customer_id = $1', [customerId]);
     return result.rows[0] || null;

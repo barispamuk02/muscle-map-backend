@@ -13,10 +13,10 @@ const deps = { withWebhookTransaction, recordSuccessfulPayment, recordPaymentRis
 
 try {
     await initDb();
-    const period = (end='2026-11-20T00:00:00Z',start='2026-10-15T00:00:00Z') => ({
-        subscription_id:'sub_ci_ledger_12345',
-        subscription_ids:['sub_ci_ledger_12345'],
-        service_periods:[{subscription_id:'sub_ci_ledger_12345',starts_at:start,ends_at:end}]
+    const period = (end='2026-11-20T00:00:00Z',start='2026-10-15T00:00:00Z',sub='sub_ci_ledger_12345') => ({
+        subscription_id:sub,
+        subscription_ids:[sub],
+        service_periods:[{subscription_id:sub,starts_at:start,ends_at:end}]
     });
     const payId = 'pay_ci_unique_100';
     const uid = 'u_ci_ledger_100';
@@ -58,7 +58,7 @@ try {
                 payment_id: concurrentId,
                 metadata: { user_id: 'u_ci_concurrent_200' },
                 total_amount: 399, currency:'USD',
-                ...period('2026-11-15T00:00:00Z')
+                ...period('2026-11-15T00:00:00Z','2026-10-15T00:00:00Z','sub_ci_concurrent_200')
             }
         }, 'evt_ci_concurrent_' + i, deps, new Date('2026-10-15T00:00:00Z'))
     );
@@ -85,7 +85,7 @@ try {
     // safely de-duplicated by webhook-id across different deliveries.
     await assert.rejects(
         processDodoEvent({
-            type:'payment.succeeded',data:{metadata:{user_id:'u_ci_payment_no_id'},...period(),total_amount:399,currency:'USD'}
+            type:'payment.succeeded',data:{metadata:{user_id:'u_ci_payment_no_id'},...period('2026-11-20T00:00:00Z','2026-10-15T00:00:00Z','sub_ci_missing_payment_id_12345'),total_amount:399,currency:'USD'}
         },'evt_ci_no_payment_id',deps,new Date('2026-10-15T00:00:00Z')),
         /Missing or invalid Dodo payment_id/
     );
@@ -120,7 +120,7 @@ try {
     const calendar = await processDodoEvent({
         type:'payment.succeeded',
         data:{payment_id:'pay_ci_calendar_oct',metadata:{user_id:'u_ci_calendar'},
-            ...period('2026-11-14T04:23:00Z','2026-10-14T04:23:00Z'),
+            ...period('2026-11-14T04:23:00Z','2026-10-14T04:23:00Z','sub_ci_calendar_oct'),
             total_amount:399,currency:'USD'}
     },'evt_ci_calendar_oct',deps,new Date('2026-10-14T04:24:00Z'));
     assert.equal(calendar.result.action,'premium_activated');
@@ -276,7 +276,8 @@ try {
     const existingCustomer='cus_ci_owner_guard_12345';
     const trueOwner='u_ci_owner_guard_12345';
     const otherUser='u_ci_other_guard_12345';
-    const guardPeriod=period('2026-11-19T00:00:00Z');
+    const guardPeriod=period('2026-11-19T00:00:00Z','2026-10-15T00:00:00Z','sub_ci_owner_guard_12345');
+    const newCustomerPeriod=period('2026-11-19T00:00:00Z','2026-10-15T00:00:00Z','sub_ci_new_customer_concurrent_12345');
     const guardNow=new Date('2026-10-15T00:00:00Z');
     await setPremium(trueOwner,'2026-11-18T00:00:00Z',null,existingCustomer);
     await setPremium(otherUser,'2026-11-18T00:00:00Z',null,'cus_ci_other_guard_12345');
@@ -332,13 +333,13 @@ try {
             type:'payment.succeeded',
             data:{payment_id:'pay_ci_guard_new_1',metadata:{user_id:'u_ci_guard_new_1'},
                 customer:{customer_id:sameNewCustomer},
-                total_amount:399,currency:'USD',...guardPeriod}
+                total_amount:399,currency:'USD',...newCustomerPeriod}
         },'evt_ci_guard_new_1',deps,guardNow),
         processDodoEvent({
             type:'payment.succeeded',
             data:{payment_id:'pay_ci_guard_new_2',metadata:{user_id:'u_ci_guard_new_2'},
                 customer:{customer_id:sameNewCustomer},
-                total_amount:399,currency:'USD',...guardPeriod}
+                total_amount:399,currency:'USD',...newCustomerPeriod}
         },'evt_ci_guard_new_2',deps,guardNow)
     ]);
     assert.equal(results.filter(x=>x.status==='fulfilled').length,1);
