@@ -51,6 +51,23 @@ export async function initDb() {
         reviewed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         UNIQUE (issuer, subject)
     )`);
+    // OTP challenge is bound to a verified auth identity AND Dodo billing customer.
+    // Store only a keyed digest, never the plaintext OTP.
+    await pool.query(`CREATE TABLE IF NOT EXISTS billing_email_challenges (
+        id TEXT PRIMARY KEY,
+        issuer TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        customer_id TEXT NOT NULL,
+        recipient_email TEXT NOT NULL,
+        code_digest TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        expires_at TIMESTAMPTZ NOT NULL,
+        sent_at TIMESTAMPTZ,
+        consumed_at TIMESTAMPTZ,
+        attempts INT NOT NULL DEFAULT 0,
+        CHECK (attempts >= 0 AND attempts <= 5)
+    )`);
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_billing_challenge_identity ON billing_email_challenges(issuer,subject,created_at DESC)');
     await pool.query('CREATE INDEX IF NOT EXISTS idx_users_dodo_customer ON users(dodo_customer_id)');
     // A second durable constraint independent of the deterministic payment record ID.
     await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_unique_dodo_id ON payments(dodo_payment_id) WHERE dodo_payment_id IS NOT NULL');
