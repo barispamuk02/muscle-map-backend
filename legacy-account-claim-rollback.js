@@ -56,7 +56,7 @@ export async function reverseLegacyPremiumClaimAfterReview(
         );
         const c = await db.query(
             'SELECT issuer,subject,evidence_reference,dodo_customer_id,'+
-            'previous_user_id,premium_expires_at_claim,reviewed_at '+
+            'previous_user_id,premium_expires_at_claim,premium_expires_after_claim,reviewed_at '+
             'FROM legacy_account_claims WHERE legacy_user_id=$1 FOR UPDATE',
             [legacyUserId]
         );
@@ -64,7 +64,8 @@ export async function reverseLegacyPremiumClaimAfterReview(
         if(c.rowCount!==1 || claim.issuer!==issuer || claim.subject!==subject ||
            claim.evidence_reference!==originalEvidenceReference ||
            !validText(claim.previous_user_id,3,512) ||
-           !claim.premium_expires_at_claim || !claim.reviewed_at) {
+           !claim.premium_expires_at_claim || !claim.premium_expires_after_claim ||
+           !claim.reviewed_at) {
             throw Error('ROLLBACK_ORIGINAL_CLAIM_OR_SNAPSHOT_MISMATCH');
         }
         const claimTime=new Date(claim.reviewed_at).getTime();
@@ -87,7 +88,9 @@ export async function reverseLegacyPremiumClaimAfterReview(
         if(legacy.rowCount!==1 ||
            legacy.rows[0].dodo_customer_id!==claim.dodo_customer_id ||
            !expiry ||
-           new Date(expiry).getTime()!==new Date(claim.premium_expires_at_claim).getTime()) {
+           new Date(expiry).getTime()!==new Date(claim.premium_expires_after_claim).getTime() ||
+           new Date(claim.premium_expires_at_claim).getTime()>
+               new Date(claim.premium_expires_after_claim).getTime()) {
             throw Error('ROLLBACK_PREMIUM_OR_BILLING_CHANGED_MANUAL_REVIEW');
         }
 
