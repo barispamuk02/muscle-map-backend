@@ -117,11 +117,6 @@ export async function processDodoEvent(event, eventId, dependencies, now = new D
 
             // Resolve and validate the period BEFORE any payment ledger write.
             const expiresAt = resolvePremiumExpiry(data, now);
-            // Validate the durable, per-charge identifier BEFORE attempting
-            // to bind a recurring subscription to any recipient.
-            if(typeof data.payment_id!=='string' || !data.payment_id.trim() ||
-                data.payment_id.trim().length>200)
-                throw Error('Missing or invalid Dodo payment_id');
             // A signed "payment.succeeded" does not necessarily mean our
             // paid USD subscription: zero-amount trials, unrelated products
             // and other currencies must not unlock Muscle Map Premium.
