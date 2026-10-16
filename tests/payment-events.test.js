@@ -50,6 +50,7 @@ test('expiry uses exact provider-paid service periods, not 30-day guesses', () =
 
 function paidPeriod(end = '2026-11-15T00:00:00Z') {
     return { subscription_id: 'sub_ci_98765', subscription_ids: ['sub_ci_98765'],
+        total_amount:399,currency:'USD',
         service_periods: [{ subscription_id:'sub_ci_98765',
             starts_at:'2026-10-15T00:00:00Z',ends_at:end }] };
 }
@@ -85,6 +86,27 @@ function fakeDependencies() {
     };
     return { deps, users, applied };
 }
+
+test('paid Premium rejects zero, negative, wrong currency and unrelated product',async()=>{
+    for(const mismatch of [
+        {total_amount:0},
+        {total_amount:-1},
+        {currency:'EUR'},
+        {total_amount:null},
+        {product_cart:[{product_id:'pdt_unrelated_12345',quantity:1}]}
+    ]){
+        const {deps,users,applied}=fakeDependencies();
+        const pay={type:'payment.succeeded',data:{
+            payment_id:'pay_ci_different_product_123',
+            metadata:{user_id:'u_ci_trial_guard_123'},
+            ...paidPeriod(),...mismatch
+        }};
+        await assert.rejects(processDodoEvent(pay,
+            'evt_ci_trial_guard_123',deps,now),/Dodo Premium requires|Dodo payment product/);
+        assert.equal(users.size,0);
+        assert.equal(applied.size,0);
+    }
+});
 
 test('successful payment activates only one time for duplicate event', async () => {
     const { deps, users, applied } = fakeDependencies();
