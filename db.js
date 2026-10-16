@@ -127,12 +127,12 @@ export async function initDb() {
  * lock ensures concurrent logins do not create orphan users. Legacy Premium accounts
  * are intentionally NOT silently linked by email or browser-supplied IDs.
  */
-export async function getAccountUserId({ issuer, subject }) {
+export async function getAccountUserId({ issuer, subject }, database = pool) {
     if (typeof issuer !== 'string' || !issuer || issuer.length > 512 ||
         typeof subject !== 'string' || !subject || subject.length > 255) {
         throw new Error('Invalid verified identity');
     }
-    const client = await pool.connect();
+    const client = await database.connect();
     let active = false;
     try {
         await client.query('BEGIN');
