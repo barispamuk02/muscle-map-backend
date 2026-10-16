@@ -66,6 +66,14 @@ test('valid LIVE subscription and consumed billing-email challenge reconcile exa
         evidenceReference:'dodo-audit:clm_ci_challenge_12345'
     });
 });
+test('recurring Dodo subscription with null one-time product cart is valid with a fresh OTP',()=>{
+    const base=fixtures();
+    base.payment.product_cart=null;
+    const proof=reconcileDodoLiveOwnership({...base,now:NOW});
+    assert.equal(proof.paidThrough,'2026-11-14T04:23:00.000Z');
+    base.payment.product_cart=[{product_id:'pdt_wrong_12345678',quantity:1}];
+    assert.throws(()=>reconcileDodoLiveOwnership({...base,now:NOW}),/product cart/);
+});
 test('screenshot or email matching alone never authorizes ownership',()=>{
     const base=fixtures();
     for(const challenge of [undefined,{}, {verified:true}, 
