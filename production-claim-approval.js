@@ -5,9 +5,11 @@
 import {createHash,createPublicKey,verify as verifySignature} from 'node:crypto';
 import {PRODUCTION_AUTH_ISSUER} from './production-auth-schema-migration.js';
 
-// Empty until a separately approved Production key enrollment.
-// This makes ALL Production claims fail closed, even with a valid STAGING key.
-export const ENROLLED_PRODUCTION_APPROVER_FINGERPRINT='';
+// Public SHA-256 fingerprint ONLY, supplied by the owner after local encrypted
+// Production Ed25519 generation. NO private key or passphrase in this repo.
+// Enrollment alone is NOT permission to move paid Premium; operator must
+// separately approve a scoped live claim on their own computer.
+export const ENROLLED_PRODUCTION_APPROVER_FINGERPRINT='1c6bd3d740d19d9d7ac4f82881c7e8bd282e1cdbd2e4664bf3ef72459e6d09aa';
 
 const fields=[
     'action','issuer','subject','legacyUserId','customerId',
