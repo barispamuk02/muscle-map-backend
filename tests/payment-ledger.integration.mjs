@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import pg from 'pg';
-import { initDb, getPremiumStatus, recordSuccessfulPayment, setPremium, withWebhookTransaction, expirePremiumIfElapsed, getUserByDodoCustomer } from '../db.js';
+import { initDb, getPremiumStatus, recordSuccessfulPayment, setPremium, withWebhookTransaction, expirePremiumIfElapsed, getUserByDodoCustomer, getAccountUserId } from '../db.js';
 import { processDodoEvent } from '../payment-events.js';
 
 if (!process.env.DATABASE_URL?.includes('muscle_map_ci')) {
@@ -96,6 +96,31 @@ try {
     assert.equal((await getPremiumStatus('u_ci_setup_only')).premium,false);
     assert.equal(Number((await reader.query("SELECT COUNT(*) AS c FROM payments WHERE dodo_payment_id='pay_ci_setup_only'")).rows[0].c),0);
     console.log('PAYMENT_METHOD_UPDATE_NOT_PAID_OK');
+
+    // A verified provider subject produces one durable identity, even on
+    // concurrent requests. No caller-selected legacy userId can claim it.
+    const issuer = 'https://issuer.ci.example';
+    const identity = { issuer, subject:'sub_ci_one' };
+    const created = await getAccountUserId(identity);
+    assert.match(created, /^u_[a-f0-9]{48}$/);
+    const concurrentAccountIds = await Promise.all(
+        Array.from({length:4}, () => getAccountUserId(identity))
+    );
+    assert.ok(concurrentAccountIds.every(id => id === created));
+    const second = await getAccountUserId({ issuer, subject:'sub_ci_two' });
+    assert.notEqual(second, created);
+    assert.notEqual(created, uid);
+    assert.equal(Number((await reader.query(
+        'SELECT COUNT(*) AS c FROM auth_identities WHERE issuer=$1 AND subject=$2',
+        [issuer,identity.subject]
+    )).rows[0].c),1);
+    assert.equal(Number((await reader.query(
+        'SELECT COUNT(*) AS c FROM users WHERE id=$1',
+        [created]
+    )).rows[0].c),1);
+    assert.equal((await getPremiumStatus(created)).premium,false);
+    assert.equal((await getPremiumStatus(uid)).premium,true);
+    console.log('VERIFIED_ACCOUNT_BINDING_ISOLATED_AND_IDEMPOTENT_OK');
 
     console.log('REAL_POSTGRES_PAYMENT_LEDGER_ALL_OK');
 } finally {
