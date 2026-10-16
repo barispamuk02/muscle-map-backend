@@ -71,6 +71,14 @@ export async function initDb() {
     await pool.query('CREATE INDEX IF NOT EXISTS idx_users_dodo_customer ON users(dodo_customer_id)');
     // A second durable constraint independent of the deterministic payment record ID.
     await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_unique_dodo_id ON payments(dodo_payment_id) WHERE dodo_payment_id IS NOT NULL');
+    if(process.env.APP_ENV==='staging') {
+        await pool.query(`CREATE TABLE IF NOT EXISTS staging_mail_tests (
+            issuer TEXT NOT NULL,
+            subject TEXT NOT NULL,
+            requested_at TIMESTAMPTZ NOT NULL,
+            PRIMARY KEY (issuer,subject)
+        )`);
+    }
     console.log('✅ DB initialized');
 }
 
