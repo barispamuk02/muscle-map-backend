@@ -49,6 +49,9 @@ jobs:
           node --check dodo-ownership-audit.js
           node --check dodo-merchant-preview.js
           node --check scripts/dodo-live-audit.mjs
+          node --check staging-billing-preflight.js
+          node --check scripts/dodo-staging-send-otp.mjs
+          node --check scripts/dodo-staging-confirm-otp.mjs
           node --check billing-email-otp.js
           node --check trusted-dodo-claim-review.js
           node --check resend-mailer.js
