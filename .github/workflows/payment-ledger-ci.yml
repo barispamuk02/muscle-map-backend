@@ -49,6 +49,10 @@ jobs:
           node --check auth-identity.js
           node --check legacy-account-claim.js
           node --check legacy-account-claim-rollback.js
+          node --check staging-claim-approval.js
+          node --check staging-claim-operator.js
+          node --check scripts/staging-claim-preview.mjs
+          node --check tests/staging-claim-operator.test.js
           node --check tests/legacy-claim-rollback.integration.mjs
           node --check dodo-ownership-audit.js
           node --check dodo-merchant-preview.js
@@ -69,6 +73,10 @@ jobs:
           $file = (Resolve-Path ./scripts/run-staging-billing-otp.ps1).Path
           [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$errors) | Out-Null
           if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Host ("Parse issue at line " + $_.Extent.StartLineNumber + ": " + $_.Message) }; throw "PowerShell operator script has syntax errors" }
+          $errors = $null
+          $file = (Resolve-Path ./scripts/run-staging-claim-preview.ps1).Path
+          [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { throw "Read-only operator preview script has syntax errors" }
       - name: Unit regressions
         run: npm test
       - name: Real PostgreSQL ledger integration
