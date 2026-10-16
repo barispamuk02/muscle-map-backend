@@ -108,6 +108,27 @@ try{
     );
     assert.equal(wrong.rows[0].n,0);
 
+    // A zero-value or wrong-product payment cannot write a Premium row
+    // or acknowledge the delivery marker, even for a verified fresh user.
+    for(const [suffix,changes] of [
+        ['zero',{total_amount:0}],
+        ['wrong_product',{product_cart:[{product_id:'pdt_not_muscle_map_1234',quantity:1}]}],
+        ['currency',{currency:'EUR'}]
+    ]){
+        const badId='evt_ci_unpaid_new_buyer_'+suffix;
+        await assert.rejects(processDodoEvent({
+            ...event,data:{...event.data,
+                payment_id:'pay_ci_unpaid_new_buyer_'+suffix,
+                customer:{customer_id:'cus_ci_new_other_customer_1234',
+                    email:'buyer-other-ci@example.test'},
+                metadata:{user_id:otherId},
+                ...changes}
+        },badId,deps,now),/Dodo Premium requires|Dodo payment product/);
+        const attempted=await db.query('SELECT id FROM webhook_events WHERE id=$1',[badId]);
+        assert.equal(attempted.rowCount,0);
+        assert.equal((await getPremiumStatus(otherId)).premium,false);
+    }
+
     console.log('NEW_NEON_BUYER_TO_DODO_PAID_PREMIUM_SIMULATION=PASS');
     console.log('NEW_BUYER_ID_BOUND_TO_PAYMENT_AND_EXPIRY=PASS');
     console.log('NEW_BUYER_UNRELATED_ACCOUNTS_UNTOUCHED=PASS');
