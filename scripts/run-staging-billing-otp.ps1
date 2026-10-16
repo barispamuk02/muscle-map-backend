@@ -62,49 +62,33 @@ try {
     $env:STAGING_PAYMENT_ID = Read-PrivateValue 'Dodo successful payment ID (pay_..., hidden)'
     $env:STAGING_SUBSCRIPTION_ID = Read-PrivateValue 'Dodo active subscription ID (sub_..., hidden)'
     Write-Host 'Dodo LIVE will be checked read-only and Neon staging verified.' -ForegroundColor Cyan
-    Write-Host 'Only if all validations pass will one new billing email code be sent.' -ForegroundColor Cyan
-    $permission = (Read-Host 'Authorize ONE new billing OTP email after verification? Type SEND to consent').Trim()
+    Write-Host 'Only after successful validation will one NEW code be sent.' -ForegroundColor Cyan
+    $permission = (Read-Host 'Authorize ONE new billing OTP after validation? Type SEND to consent').Trim()
     if ($permission -cne 'SEND') {
         Write-Host 'CANCELLED_NO_EMAIL_SENT'
         return
     }
     $env:STAGING_SEND_CONSENT = 'SEND'
-    # This child process does not request stdin; capture stdout only to retain
-    # the challenge ID without displaying it, saving it, or retyping it.
+    # Node requires no input now. Capture stdout in memory so that the
+    # challenge ID can be passed internally without retyping or printing it.
     $senderOutput = @(& node .\scripts\dodo-staging-send-otp.mjs)
     if ($LASTEXITCODE -ne 0) {
-        throw 'STAGING_BILLING_SEND_NOT_COMPLETED. Do not retry blindly.'
+        throw 'STAGING_BILLING_SEND_NOT_COMPLETED. Stop, do not retry blindly.'
     }
     $accepted = @($senderOutput | Where-Object { $_ -ceq 'STAGING_BILLING_OTP_EMAIL_ACCEPTED=YES' })
-    $challengeLines = @($senderOutput | Where-Object { $_ -cmatch '^LOCAL_CHALLENGE_ID=clm_[a-f0-9]{40}
-    if ($LASTEXITCODE -ne 0) {
-        throw 'STAGING_OTP_CONFIRM_NOT_SUCCESSFUL. Stop, do not send another code.'
-    }
-    Write-Host 'Completed: staging email ownership verified, NO Premium transfer.' -ForegroundColor Green
-}
-catch {
-    # Do not print raw inner errors (may accidentally include sensitive input).
-    Write-Host 'LOCAL_STAGING_OPERATOR_STOPPED. Check the last sanitized status above.' -ForegroundColor Yellow
-    exit 1
-}
-finally {
-    foreach ($name in $temporaryNames) {
-        Remove-Item -Path ('Env:' + $name) -ErrorAction SilentlyContinue
-    }
-    [Array]::Clear($secretBytes, 0, $secretBytes.Length)
-}
- })
+    $challengeLines = @($senderOutput | Where-Object { $_ -cmatch '^LOCAL_CHALLENGE_ID=clm_[a-f0-9]{40}$' })
     if ($accepted.Count -ne 1 -or $challengeLines.Count -ne 1) {
-        throw 'STAGING_BILLING_SEND_RECEIPT_INVALID. Stop; do not retry blindly.'
+        throw 'STAGING_BILLING_SEND_RECEIPT_INVALID. Stop, do not retry blindly.'
     }
-    $env:STAGING_CHALLENGE_ID = [string]$challengeLines[0].Substring('LOCAL_CHALLENGE_ID='.Length)
+    $challengeLine = [string]$challengeLines[0]
+    $env:STAGING_CHALLENGE_ID = $challengeLine.Substring('LOCAL_CHALLENGE_ID='.Length)
     Write-Host 'STAGING_BILLING_OTP_EMAIL_ACCEPTED=YES'
     Write-Host 'LOCAL_CHALLENGE_ID_HANDOFF=AUTOMATIC'
-    Write-Host 'Read the newest Premium verification email. The code expires after 10 minutes.'
+    Write-Host 'Read the NEWEST Premium verification email. The code expires in 10 minutes.'
     Write-Host ''
-    $answer = (Read-Host 'Received the NEW verification code? Type YES to verify now, or anything else to stop').Trim()
+    $answer = (Read-Host 'Received the NEW code? Type YES to verify now, or anything else to stop').Trim()
     if ($answer -cne 'YES') {
-        Write-Host 'STOPPED. Email sent, but code unverified. No account transfer performed.'
+        Write-Host 'STOPPED. Mail was sent but not verified. No account transfer.'
         return
     }
     $env:STAGING_OTP_CODE = Read-PrivateValue 'Six-digit NEW billing email code (hidden)'
