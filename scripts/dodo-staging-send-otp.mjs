@@ -49,7 +49,12 @@ if(!configIsSafe()) {
         console.log('STAGING_VERIFIED_LOGIN_AND_DODO_CUSTOMER_MATCH=YES');
         console.log('MERCHANT_PAID_THROUGH_UTC='+match.paidThrough);
         console.log('No account will be linked or changed by this OTP step.');
-        const confirmation=(await rl.question('Send one independent OTP to Dodo billing address? Type SEND: ')).trim();
+        // A trusted local PowerShell launcher may request consent *before*
+        // the read-only preflight and supply exactly SEND in its private
+        // process environment. Otherwise require explicit terminal consent.
+        const confirmation=(process.env.STAGING_SEND_CONSENT==='SEND'
+            ? 'SEND'
+            : (await rl.question('Send one independent OTP to Dodo billing address? Type SEND: ')).trim());
         if(confirmation!=='SEND') {
             console.log('CANCELLED_NO_EMAIL_SENT');
         } else{
