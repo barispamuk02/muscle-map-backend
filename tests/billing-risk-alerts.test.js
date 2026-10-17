@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {isAlertRecipientConfigured,alertMessage,flushPendingRiskAlerts,startRiskAlertLoop} from '../billing-risk-alerts.js';
+import {isAlertRecipientConfigured,alertMessage,flushPendingRiskAlerts,startRiskAlertLoop,triggerRiskAlertDrain} from '../billing-risk-alerts.js';
 const row={webhook_id:'evt_verified123',event_type:'refund.succeeded',received_at:'2026-10-17T01:00:00Z',matched_payment_user_id:null};
 test('alert recipient must be explicit and valid',()=>{
  assert.equal(isAlertRecipientConfigured('owner@example.com'),true);
@@ -34,4 +34,27 @@ test('background runner catches mail failure and avoids overlapping passes',asyn
  startRiskAlertLoop({tick:async()=>{throw Error('offline')},schedule:fn=>{callback=fn;return {unref(){}}},log:{error:()=>errors++,info:()=>{}}});
  await callback();
  assert.ok(errors>=1);
+});
+
+test('health-style triggers share one in-flight drain and retry after completion',async()=>{
+ let resolve,called=0;
+ const tick=()=>{called++;return new Promise(r=>{resolve=r;});};
+ const log={info(){},error(){}};
+ const a=triggerRiskAlertDrain({tick,log});
+ const b=triggerRiskAlertDrain({tick,log});
+ assert.equal(a,b);
+ await Promise.resolve();
+ assert.equal(called,1);
+ resolve({sent:0});
+ await a;
+ const next=triggerRiskAlertDrain({tick:async()=>({sent:0}),log});
+ await next;
+ assert.equal(called,1);
+});
+test('failed health-style drain does not block next attempt',async()=>{
+ const log={info(){},error(){}};
+ const first=await triggerRiskAlertDrain({tick:async()=>{throw Error('offline');},log});
+ assert.equal(first.failed,true);
+ const next=await triggerRiskAlertDrain({tick:async()=>({sent:1}),log});
+ assert.equal(next.sent,1);
 });
