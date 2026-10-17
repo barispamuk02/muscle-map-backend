@@ -18,6 +18,7 @@ import { verifyDodoSignature, processDodoEvent } from './payment-events.js';
 import { authenticateBearer, AuthenticationError, isAuthConfigured } from './auth-identity.js';
 import { sendStagingVerifiedMail } from './staging-mail-test.js';
 import { assertProductionAuthCutoverConfiguration } from './production-auth-rollout-guard.js';
+import { getPremiumProgramProgression } from './premium-program-progression.js';
 
 const app = express();
 const stagingOnly = process.env.APP_ENV === 'staging';
@@ -75,6 +76,27 @@ app.get('/api/v2/me/premium', async (req, res) => {
         res.json({ userId, ...(await getPremiumStatus(userId)) });
     } catch (error) {
         writeAuthError(res, error);
+    }
+});
+
+// This NEW Premium feature is server-owned content; no phase text is bundled
+// into the public GitHub Pages app. JWT + verified email + paid-through DB
+// entitlement are checked on EVERY request. No localStorage trust, no charge.
+app.get('/api/v2/me/programs/:programId/progression', async (req,res) => {
+    res.set('Cache-Control','private, no-store, max-age=0');
+    res.set('Vary','Authorization, Origin');
+    res.set('X-Content-Type-Options','nosniff');
+    try {
+        const userId=await getVerifiedAccountId(req);
+        const entitlement=await getPremiumStatus(userId);
+        if(entitlement.premium!==true)
+            return res.status(403).json({error:'premium required'});
+        const language=req.query.lang==='en'?'en':'ru';
+        const payload=await getPremiumProgramProgression(req.params.programId,language);
+        if(!payload)return res.status(404).json({error:'program not found'});
+        return res.json(payload);
+    } catch(error) {
+        return writeAuthError(res,error);
     }
 });
 

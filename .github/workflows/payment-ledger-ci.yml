@@ -3,6 +3,8 @@ on:
   push:
     branches:
       - fix/issue-10-payment-ledger
+      - main
+      - feature/server-only-premium-program-progression-20261017
   pull_request:
     paths:
       - 'db.js'
@@ -19,6 +21,7 @@ on:
       - 'scripts/production-owner-operator.mjs'
       - 'scripts/run-production-owner-operator.ps1'
       - 'server.js'
+      - 'premium-program-progression.js'
       - 'payment-events.js'
       - 'tests/**'
       - 'package.json'
@@ -56,6 +59,7 @@ jobs:
       - name: Validate source syntax
         run: |
           node --check server.js
+          node --check premium-program-progression.js
           node --check db.js
           node --check payment-events.js
           node --check auth-identity.js

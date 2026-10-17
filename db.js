@@ -43,6 +43,13 @@ export async function initDb() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`);
     await pool.query('CREATE INDEX IF NOT EXISTS idx_billing_subscription_customer ON billing_subscription_owners(dodo_customer_id)');
+    // Commercial content is NOT part of this public GitHub repository.
+    // Only controlled private Neon writes populate this table after review.
+    await pool.query("CREATE TABLE IF NOT EXISTS premium_program_content (" +
+        "program_id TEXT PRIMARY KEY, " +
+        "content_ru JSONB NOT NULL CHECK (jsonb_typeof(content_ru)='object'), " +
+        "content_en JSONB NOT NULL CHECK (jsonb_typeof(content_en)='object'), " +
+        "updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
     await pool.query(`CREATE TABLE IF NOT EXISTS auth_identities (
         issuer TEXT NOT NULL,
         subject TEXT NOT NULL,
