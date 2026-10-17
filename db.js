@@ -101,6 +101,7 @@ export async function initDb() {
         review_status TEXT NOT NULL DEFAULT 'pending'
             CHECK (review_status IN ('pending','reviewed'))
     )`);
+    await pool.query('ALTER TABLE payment_risk_events ADD COLUMN IF NOT EXISTS alert_sent_at TIMESTAMPTZ');
     await pool.query('CREATE INDEX IF NOT EXISTS idx_payment_risk_lookup ON payment_risk_events(dodo_payment_id,received_at DESC)');
     // OTP challenge is bound to a verified auth identity AND Dodo billing customer.
     // Store only a keyed digest, never the plaintext OTP.
