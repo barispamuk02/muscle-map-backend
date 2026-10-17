@@ -147,6 +147,13 @@ test('protected HTTP Premium enforces signed identity, verified email and stagin
         assert.deepEqual(await deniedFree.json(),{error:'premium required'});
         assert.match(deniedFree.headers.get('cache-control'),/no-store/);
         await pool.query("UPDATE users SET premium_expires=now()+interval '31 days' WHERE id=$1",[status.userId]);
+        const synthetic={heading:'CI synthetic weekly plan',introduction:'Only synthetic text in disposable PostgreSQL',
+            phases:[{weeks:'1–2',title:'CI fixture',action:'Synthetic example',check:'Fake check'}],
+            disclaimer:'Test only'};
+        await pool.query(
+            'INSERT INTO premium_program_content (program_id,content_ru,content_en) VALUES($1,$2,$3)',
+            ['mass3',JSON.stringify(synthetic),JSON.stringify(synthetic)]
+        );
         for(const locale of ['ru','en']){
             const allowed=await readProgress('Bearer '+token,
                 '/api/v2/me/programs/mass3/progression?lang='+locale);
