@@ -133,8 +133,39 @@ test('protected HTTP Premium enforces signed identity, verified email and stagin
         );
         assert.equal(mapped.rowCount,1);
         assert.equal(mapped.rows[0].user_id,status.userId);
+        const progressionPath='/api/v2/me/programs/mass3/progression?lang=en';
+        const readProgress=(authorization,url=progressionPath)=>fetch(backend+url,{
+            headers:authorization?{Authorization:authorization}:{}
+        });
+        const deniedGuest=await readProgress();
+        assert.equal(deniedGuest.status,401);
+        assert.ok(!(await deniedGuest.text()).includes('Find your training load'));
+        assert.equal((await readProgress('Bearer invalid.jwt.test')).status,401);
+        assert.equal((await readProgress('Bearer '+wrongIssuer)).status,401);
+        const deniedFree=await readProgress('Bearer '+token);
+        assert.equal(deniedFree.status,403);
+        assert.deepEqual(await deniedFree.json(),{error:'premium required'});
+        assert.match(deniedFree.headers.get('cache-control'),/no-store/);
+        await pool.query("UPDATE users SET premium_expires=now()+interval '31 days' WHERE id=$1",[status.userId]);
+        for(const locale of ['ru','en']){
+            const allowed=await readProgress('Bearer '+token,
+                '/api/v2/me/programs/mass3/progression?lang='+locale);
+            assert.equal(allowed.status,200);
+            assert.match(allowed.headers.get('cache-control'),/no-store/);
+            assert.match(allowed.headers.get('vary'),/Authorization/);
+            const program=await allowed.json();
+            assert.equal(program.programId,'mass3');
+            assert.equal(program.language,locale);
+            assert.ok(program.phases.length>=4);
+            assert.ok(program.phases.every(p=>p.weeks&&p.action&&p.check));
+        }
+        assert.equal((await readProgress('Bearer '+token,
+            '/api/v2/me/programs/invalid/progression')).status,404);
+        await pool.query("UPDATE users SET premium_expires=now()-interval '1 second' WHERE id=$1",[status.userId]);
+        assert.equal((await readProgress('Bearer '+token)).status,403);
         await pool.query('UPDATE neon_auth."user" SET banned=true WHERE id=$1',[subject]);
         assert.equal((await get('Bearer '+token)).status,403,'banned user loses access');
+        assert.equal((await readProgress('Bearer '+token)).status,403,'banned account forbidden from paid progression');
         console.log('ISOLATED_SIGNED_JWT_VERIFIED_EMAIL_BANNED_AND_BILLING_GATES_OK');
     } finally {
         if(child){child.kill('SIGTERM');await sleep(120);}
