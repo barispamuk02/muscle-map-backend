@@ -45,22 +45,25 @@ export async function flushPendingRiskAlerts({
   }
   return {configured:true,sent};
 }
+// Single flight across webhook, timer and health wakeups in one process.
+let activeDrain=null;
+export function triggerRiskAlertDrain({tick=flushPendingRiskAlerts,log=console}={}) {
+  if(activeDrain)return activeDrain;
+  const work=Promise.resolve().then(()=>tick()).then(result=>{
+    if(result?.sent>0)log.info('Dodo risk alerts sent:',result.sent);
+    return result;
+  }).catch(error=>{
+    log.error('Dodo risk alert delivery failed:',error?.name||'unknown');
+    return {failed:true};
+  }).finally(()=>{if(activeDrain===work)activeDrain=null;});
+  activeDrain=work;
+  return work;
+}
 export function startRiskAlertLoop({
   tick=flushPendingRiskAlerts, intervalMs=3600000, schedule=setInterval, log=console
 }={}) {
-  let running=false;
-  const run=async()=>{
-    if(running)return;
-    running=true;
-    try {
-      const result=await tick();
-      if(result.sent>0)log.info('Dodo risk alerts sent:',result.sent);
-    }catch(error){
-      log.error('Dodo risk alert delivery failed:',error.name||'unknown');
-    }finally{running=false;}
-  };
-  void run();
-  const handle=schedule(run,intervalMs);
+  void triggerRiskAlertDrain({tick,log});
+  const handle=schedule(()=>{void triggerRiskAlertDrain({tick,log});},intervalMs);
   if(handle&&typeof handle.unref==='function')handle.unref();
   return handle;
 }
