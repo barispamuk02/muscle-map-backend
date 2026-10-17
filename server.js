@@ -17,7 +17,7 @@ import {
 import { verifyDodoSignature, processDodoEvent } from './payment-events.js';
 import { authenticateBearer, AuthenticationError, isAuthConfigured } from './auth-identity.js';
 import { sendStagingVerifiedMail } from './staging-mail-test.js';
-import { flushPendingRiskAlerts, startRiskAlertLoop } from './billing-risk-alerts.js';
+import { triggerRiskAlertDrain, startRiskAlertLoop } from './billing-risk-alerts.js';
 import { assertProductionAuthCutoverConfiguration } from './production-auth-rollout-guard.js';
 import { getPremiumProgramProgression } from './premium-program-progression.js';
 
@@ -41,6 +41,10 @@ app.use(express.json({ limit: '32kb' }));
 
 app.get('/health', (_req, res) => {
     res.json({ ok: true, time: new Date().toISOString() });
+    // Queue processing is background-only: no billing action or sensitive data in response.
+    if (!stagingOnly && process.env.BILLING_ALERT_EMAIL) {
+        void triggerRiskAlertDrain();
+    }
 });
 
 // Migration switch: leave historical anonymous clients usable during staged rollout.
@@ -242,7 +246,7 @@ app.post('/api/webhook/dodo', async (req, res) => {
         // Webhook transaction already committed. Alert failures must not request
         // a Dodo retry or roll back valid subscription state.
         if(result.result?.action==='payment_risk_review_pending' || result.action==='payment_risk_review_pending') {
-            void flushPendingRiskAlerts().catch(err => console.error('Dodo risk alert delivery failed:',err.name));
+            void triggerRiskAlertDrain();
         }
         res.json({ ok: true, skipped: result.skipped });
     } catch (error) {
