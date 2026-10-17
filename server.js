@@ -97,7 +97,11 @@ app.post('/api/v2/me/operator/billing-mail-smoke',async(req,res)=>{
             return res.status(202).json({ok:true,message:'test email accepted'});
         }catch(error){
             smokeStarted=false;
-            console.error('Operator mail smoke failure:',error.name);
+            const known = ['MAIL_NOT_CONFIGURED','INVALID_MAIL_REQUEST',
+              'MAIL_DELIVERY_UNAVAILABLE','SMOKE_EMAIL_NOT_ACCEPTED',
+              'BILLING_ALERT_EMAIL_NOT_CONFIGURED','INVALID_SMOKE_TIME'];
+            const diagnosis=known.includes(error?.message)?error.message:'UNCLASSIFIED_MAIL_FAILURE';
+            console.error('Operator mail smoke failure:',diagnosis);
             return res.status(503).json({error:'test mail unavailable'});
         }
     }catch(error){return writeAuthError(res,error);}
