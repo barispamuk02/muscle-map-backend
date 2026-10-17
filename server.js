@@ -92,7 +92,7 @@ app.get('/api/v2/me/programs/:programId/progression', async (req,res) => {
         if(entitlement.premium!==true)
             return res.status(403).json({error:'premium required'});
         const language=req.query.lang==='en'?'en':'ru';
-        const payload=getPremiumProgramProgression(req.params.programId,language);
+        const payload=await getPremiumProgramProgression(req.params.programId,language);
         if(!payload)return res.status(404).json({error:'program not found'});
         return res.json(payload);
     } catch(error) {
