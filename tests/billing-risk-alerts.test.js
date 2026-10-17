@@ -33,6 +33,7 @@ test('background runner catches mail failure and avoids overlapping passes',asyn
  let callback,errors=0;
  startRiskAlertLoop({tick:async()=>{throw Error('offline')},schedule:fn=>{callback=fn;return {unref(){}}},log:{error:()=>errors++,info:()=>{}}});
  await callback();
+ for(let i=0;i<10&&errors===0;i++)await new Promise(resolve=>setImmediate(resolve));
  assert.ok(errors>=1);
 });
 
