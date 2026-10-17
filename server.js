@@ -17,6 +17,7 @@ import {
 import { verifyDodoSignature, processDodoEvent } from './payment-events.js';
 import { authenticateBearer, AuthenticationError, isAuthConfigured } from './auth-identity.js';
 import { sendStagingVerifiedMail } from './staging-mail-test.js';
+import { flushPendingRiskAlerts, startRiskAlertLoop } from './billing-risk-alerts.js';
 import { assertProductionAuthCutoverConfiguration } from './production-auth-rollout-guard.js';
 import { getPremiumProgramProgression } from './premium-program-progression.js';
 
@@ -237,6 +238,11 @@ app.post('/api/webhook/dodo', async (req, res) => {
             recordPaymentRiskEvent,
             resolveDodoBillingRecipient
         });
+        // Webhook transaction already committed. Alert failures must not request
+        // a Dodo retry or roll back valid subscription state.
+        if(result.result?.action==='payment_risk_review_pending' || result.action==='payment_risk_review_pending') {
+            void flushPendingRiskAlerts().catch(err => console.error('Dodo risk alert delivery failed:',err.name));
+        }
         res.json({ ok: true, skipped: result.skipped });
     } catch (error) {
         // Non-2xx on processing failure asks Dodo to retry. No event marker was committed.
@@ -276,6 +282,7 @@ app.post('/api/webhook/dodo', async (req, res) => {
         assertProductionAuthCutoverConfiguration();
         await initDb();
         app.listen(PORT, () => console.log(`🚀 Server on port ${PORT}`));
+        if(!stagingOnly && process.env.BILLING_ALERT_EMAIL) startRiskAlertLoop();
     } catch (error) {
         console.error('startup error:', error);
         process.exit(1);
