@@ -20,6 +20,7 @@ import { sendStagingVerifiedMail } from './staging-mail-test.js';
 import { flushPendingRiskAlerts, startRiskAlertLoop } from './billing-risk-alerts.js';
 import { assertProductionAuthCutoverConfiguration } from './production-auth-rollout-guard.js';
 import { getPremiumProgramProgression } from './premium-program-progression.js';
+import { sendBillingSmoke } from './scripts/send-billing-alert-smoke.js';
 
 const app = express();
 const stagingOnly = process.env.APP_ENV === 'staging';
@@ -69,6 +70,38 @@ async function getVerifiedAccountId(req) {
     }
     return getAccountUserId(identity);
 }
+
+
+// TEMPORARY OWNER SMOKE: remove immediately after delivery confirmation.
+// Explicit allowlisted Neon Auth subject, verified email, active Premium,
+// in-memory single-flight; provider idempotency guarantees at most one send/day.
+let smokeStarted=false;
+app.post('/api/v2/me/operator/billing-mail-smoke',async(req,res)=>{
+    res.set('Cache-Control','private, no-store');
+    if(process.env.BILLING_SMOKE_ENABLED!=='true')return res.status(404).json({error:'not available'});
+    if(!req.body||Object.keys(req.body).length!==0)return res.status(400).json({error:'body not permitted'});
+    try{
+        const identity=await authenticateBearer(req.headers.authorization);
+        if(process.env.BILLING_SMOKE_OWNER_SUBJECT!==identity.subject ||
+           !process.env.BILLING_SMOKE_OWNER_SUBJECT ||
+           !await isVerifiedNeonAuthSubject(identity.subject)){
+            return res.status(403).json({error:'not authorized'});
+        }
+        const accountId=await getAccountUserId(identity);
+        if((await getPremiumStatus(accountId)).premium!==true)
+            return res.status(403).json({error:'premium required'});
+        if(smokeStarted)return res.status(409).json({error:'already requested'});
+        smokeStarted=true;
+        try{
+            await sendBillingSmoke();
+            return res.status(202).json({ok:true,message:'test email accepted'});
+        }catch(error){
+            smokeStarted=false;
+            console.error('Operator mail smoke failure:',error.name);
+            return res.status(503).json({error:'test mail unavailable'});
+        }
+    }catch(error){return writeAuthError(res,error);}
+});
 
 app.get('/api/v2/me/premium', async (req, res) => {
     res.set('Cache-Control', 'no-store');
