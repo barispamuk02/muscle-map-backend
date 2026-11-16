@@ -18,6 +18,7 @@ import { verifyDodoSignature, processDodoEvent } from './payment-events.js';
 import { authenticateBearer, AuthenticationError, isAuthConfigured } from './auth-identity.js';
 import { sendStagingVerifiedMail } from './staging-mail-test.js';
 import { assertProductionAuthCutoverConfiguration } from './production-auth-rollout-guard.js';
+import { registerCloupardMediaRoute } from './cloupard-media.js';
 
 const app = express();
 const stagingOnly = process.env.APP_ENV === 'staging';
@@ -67,6 +68,9 @@ async function getVerifiedAccountId(req) {
     }
     return getAccountUserId(identity);
 }
+
+// Private Cloupard S3 media URLs. Feature flag OFF by default.
+registerCloupardMediaRoute(app, { getVerifiedAccountId, getPremiumStatus, writeAuthError });
 
 app.get('/api/v2/me/premium', async (req, res) => {
     res.set('Cache-Control', 'no-store');

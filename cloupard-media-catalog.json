@@ -1,0 +1,12 @@
+{
+  "synthetic:gif": {
+    "key": "__mm_s3_probe__/synthetic-motion.gif",
+    "tier": "free",
+    "mime": "image/gif"
+  },
+  "synthetic:glb": {
+    "key": "__mm_s3_probe__/synthetic-sphere.glb",
+    "tier": "premium",
+    "mime": "model/gltf-binary"
+  }
+}
