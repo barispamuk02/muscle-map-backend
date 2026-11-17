@@ -156,3 +156,5 @@ jobs:
         run: node tests/billing-email-otp.integration.mjs
       - name: PostgreSQL staging email delivery throttle (mock Resend)
         run: node tests/staging-mail.integration.mjs
+      - name: PostgreSQL workout sync two signed accounts (synthetic JWT + disposable database)
+        run: node tests/workout-sync-two-accounts.integration.mjs
