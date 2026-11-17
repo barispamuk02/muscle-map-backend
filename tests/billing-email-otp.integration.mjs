@@ -14,7 +14,10 @@ const issuer='https://issuer.example.test';
 const subject='11111111-2222-4333-8444-555555555555';
 const customerId='cus_ci_audit_1234567890';
 const recipientEmail='subscriber@example.test';
-const now=new Date('2026-10-16T05:00:00Z');
+const now=new Date();
+const dayMs=24*60*60*1000;
+const serviceStartsAt=new Date(now.getTime()-2*dayMs).toISOString();
+const serviceEndsAt=new Date(now.getTime()+28*dayMs).toISOString();
 const paymentId='pay_ci_audit_1234567890';
 const subscriptionId='sub_ci_audit_1234567890';
 const productId='pdt_ci_product_1234567890';
@@ -23,14 +26,14 @@ const payment={
     status:'succeeded',total_amount:399,currency:'USD',
     subscription_id:subscriptionId,subscription_ids:[subscriptionId],
     service_periods:[{subscription_id:subscriptionId,
-        starts_at:'2026-10-14T04:23:00Z',ends_at:'2026-11-14T04:23:00Z'}],
+        starts_at:serviceStartsAt,ends_at:serviceEndsAt}],
     refund_status:'none',refunds:[],disputes:[],
     product_cart:[{product_id:productId,quantity:1}]
 };
 const subscription={
     subscription_id:subscriptionId,customer:{customer_id:customerId,email:recipientEmail},
     status:'active',product_id:productId,
-    next_billing_date:'2026-11-14T04:23:00Z'
+    next_billing_date:serviceEndsAt
 };
 
 try {
@@ -39,7 +42,7 @@ try {
     await pool.query('CREATE TABLE IF NOT EXISTS neon_auth."user" (id uuid PRIMARY KEY,email text NOT NULL,"emailVerified" boolean NOT NULL,banned boolean NOT NULL DEFAULT false)');
     await pool.query('INSERT INTO neon_auth."user"(id,email,"emailVerified",banned) VALUES ($1,$2,true,false)',[subject,recipientEmail]);
     const legacyId='u_ci_trusted_review_legacy_20261016';
-    await setPremium(legacyId,'2026-11-14T04:23:00Z',recipientEmail,customerId);
+    await setPremium(legacyId,serviceEndsAt,recipientEmail,customerId);
     const tempIdentity=await getAccountUserId({issuer,subject});
     assert.ok(tempIdentity!==legacyId);
     const allCalls=[];
@@ -116,7 +119,7 @@ try {
         ...authoritative,claim,challenge:storedChallenge,now:new Date(now.getTime()+130000)
     });
     assert.equal(proof.verified,true);
-    assert.equal(proof.paidThrough,'2026-11-14T04:23:00.000Z');
+    assert.equal(proof.paidThrough,serviceEndsAt);
     assert.equal(proof.dodoCustomerId,customerId);
     assert.equal(proof.evidenceReference,'dodo-audit:'+first.challengeId);
     // Exercise the FULL internal review callback with trusted DB origin
@@ -136,7 +139,7 @@ try {
     },reviewer,pool);
     assert.equal(linked.userId,legacyId);
     assert.equal(await getAccountUserId({issuer,subject}),legacyId);
-    assert.equal((await getPremiumStatus(legacyId)).expiresAt,'2026-11-14T04:23:00.000Z');
+    assert.equal((await getPremiumStatus(legacyId)).expiresAt,serviceEndsAt);
     assert.equal(Number((await pool.query(
         'SELECT COUNT(*) AS c FROM legacy_account_claims WHERE legacy_user_id=$1 AND evidence_reference=$2',
         [legacyId,reviewed.evidenceReference]
