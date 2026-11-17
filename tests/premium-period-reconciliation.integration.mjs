@@ -10,8 +10,8 @@ const issuer='https://ci-reconcile.example.test';
 const subject='ci_subject_reconcile_2026_01';
 const legacyUserId='u_ci_reconcile_november_01';
 const customerId='cus_ci_reconcile_one_12345678';
-const oldExpiry='2026-11-13T04:23:25.043Z';
-const merchantExpiry='2026-11-14T04:23:24.489Z';
+const oldExpiry='2099-11-13T04:23:25.043Z';
+const merchantExpiry='2099-11-14T04:23:24.489Z';
 const evidenceReference='dodo-audit:clm_'+'e'.repeat(40);
 const claim={issuer,subject,legacyUserId,reviewedBy:'ci-reviewer',
     proofMethod:'dodo_merchant_manually_verified',evidenceReference};
@@ -24,7 +24,7 @@ try{
     const placeholder=await getAccountUserId({issuer,subject});
     await setPremium(legacyUserId,oldExpiry,null,customerId);
     await assert.rejects(linkLegacyPremiumAfterReview(claim,async(args)=>({
-        ...await proof(args),paidThrough:'2026-11-12T04:23:24.489Z'
+        ...await proof(args),paidThrough:'2099-11-12T04:23:24.489Z'
     }),db),/conflicts with merchant-verified expiry/);
     assert.equal((await getPremiumStatus(legacyUserId)).expiresAt,
         new Date(oldExpiry).toISOString());
