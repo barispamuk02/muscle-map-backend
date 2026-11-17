@@ -20,6 +20,8 @@ import { sendStagingVerifiedMail } from './staging-mail-test.js';
 import { triggerRiskAlertDrain, startRiskAlertLoop } from './billing-risk-alerts.js';
 import { assertProductionAuthCutoverConfiguration } from './production-auth-rollout-guard.js';
 import { getPremiumProgramProgression } from './premium-program-progression.js';
+import pool from './db.js';
+import { installWorkoutSyncRoutes, initWorkoutSyncSchema } from './workout-sync-213.js';
 
 const app = express();
 const stagingOnly = process.env.APP_ENV === 'staging';
@@ -74,6 +76,9 @@ async function getVerifiedAccountId(req) {
     return getAccountUserId(identity);
 }
 
+
+// Disabled until WORKOUT_SYNC_ENABLED=true; no schema writes while disabled.
+installWorkoutSyncRoutes(app,{getVerifiedAccountId,writeAuthError,db:pool});
 
 app.get('/api/v2/me/premium', async (req, res) => {
     res.set('Cache-Control', 'no-store');
@@ -286,6 +291,7 @@ app.post('/api/webhook/dodo', async (req, res) => {
         // an unpinned production database, or unverifiable email identities.
         assertProductionAuthCutoverConfiguration();
         await initDb();
+        if (process.env.WORKOUT_SYNC_ENABLED === 'true') await initWorkoutSyncSchema(pool);
         app.listen(PORT, () => console.log(`🚀 Server on port ${PORT}`));
         if(!stagingOnly && process.env.BILLING_ALERT_EMAIL) startRiskAlertLoop();
     } catch (error) {
