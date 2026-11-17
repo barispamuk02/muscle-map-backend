@@ -16,6 +16,8 @@ import {
 } from './db.js';
 import { verifyDodoSignature, processDodoEvent } from './payment-events.js';
 import { authenticateBearer, AuthenticationError, isAuthConfigured } from './auth-identity.js';
+import pool from './db.js';
+import { installWorkoutSyncRoutes, initWorkoutSyncSchema } from './workout-sync-213.js';
 import { sendStagingVerifiedMail } from './staging-mail-test.js';
 import { assertProductionAuthCutoverConfiguration } from './production-auth-rollout-guard.js';
 import { registerCloupardMediaRoute } from './cloupard-media.js';
@@ -71,6 +73,9 @@ async function getVerifiedAccountId(req) {
 
 // Private Cloupard S3 media URLs. Feature flag OFF by default.
 registerCloupardMediaRoute(app, { getVerifiedAccountId, getPremiumStatus, writeAuthError });
+
+// Isolated staging-only sync route; disabled unless explicitly enabled.
+installWorkoutSyncRoutes(app,{getVerifiedAccountId,writeAuthError,db:pool});
 
 app.get('/api/v2/me/premium', async (req, res) => {
     res.set('Cache-Control', 'no-store');
@@ -257,6 +262,7 @@ app.post('/api/webhook/dodo', async (req, res) => {
         // an unpinned production database, or unverifiable email identities.
         assertProductionAuthCutoverConfiguration();
         await initDb();
+        if (stagingOnly && process.env.WORKOUT_SYNC_ENABLED === 'true') await initWorkoutSyncSchema(pool);
         app.listen(PORT, () => console.log(`🚀 Server on port ${PORT}`));
     } catch (error) {
         console.error('startup error:', error);
