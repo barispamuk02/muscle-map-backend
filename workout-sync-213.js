@@ -57,12 +57,14 @@ export function installWorkoutSyncRoutes(app,{getVerifiedAccountId,writeAuthErro
     res.set('X-Content-Type-Options','nosniff');
     if(process.env.WORKOUT_SYNC_ENABLED!=='true')return res.status(404).json({error:'not enabled'});
     try{
-      // The feature can only run for the verified owner account specified by
-      // the deployment environment. Missing owner ID fails CLOSED for all users.
+      // The default mode remains owner-only, including when mode is absent,
+      // misspelled, or unrecognized. Public access requires an explicit rollout.
       const verifiedId=await getVerifiedAccountId(req);
-      const allowedId=process.env.WORKOUT_SYNC_OWNER_ACCOUNT_ID;
-      if(!allowedId||verifiedId!==allowedId)
-        return res.status(404).json({error:'not enabled'});
+      if(process.env.WORKOUT_SYNC_ACCESS_MODE!=='all_authenticated'){
+        const allowedId=process.env.WORKOUT_SYNC_OWNER_ACCOUNT_ID;
+        if(!allowedId||verifiedId!==allowedId)
+          return res.status(404).json({error:'not enabled'});
+      }
       req.workoutSyncAccount=verifiedId;
       next();
     }catch(e){writeAuthError(res,e);}
